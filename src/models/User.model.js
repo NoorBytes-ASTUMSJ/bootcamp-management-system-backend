@@ -23,7 +23,10 @@ const userSchema = new mongoose.Schema(
       minlength: [8, "Password must be at least 8 characters"],
       select: false,
     },
-    phone: { type: String, required: [true, "Phone is required"], trim: true },
+    phone: { 
+      type: String, 
+      required: [true, "Phone is required"], 
+      trim: true },
     role: {
       type: String,
       required: true,
@@ -173,10 +176,10 @@ const userSchema = new mongoose.Schema(
 
 // --- PASSWORD HASHING HOOK ---
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+  if (!this.isModified("password")) return ;
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-  next();
+  
 });
 
 // --- PASSWORD COMPARISON METHOD ---
