@@ -49,10 +49,8 @@ exports.approveMember = async (applicantId, adminId, memberData) => {
 
   return { user, member: newMember };
 };
+ // Update Member details like batch, mentor, or status (Admin CRUD)
 
-/**
- * Update Member details like batch, mentor, or status (Admin CRUD)
- */
 exports.updateMember = async (memberId, updateData) => {
   const updatedMember = await Member.findByIdAndUpdate(memberId, updateData, {
     new: true,
@@ -70,10 +68,8 @@ exports.updateMember = async (memberId, updateData) => {
 
   return updatedMember;
 };
-
-/**
- * Delete a Member profile and revert user role back to "user" (Admin CRUD)
- */
+ // Delete a Member profile and revert user role back to "user" (Admin CRUD)
+ 
 exports.deleteMember = async (memberId) => {
   const member = await Member.findById(memberId);
   if (!member) {
@@ -88,11 +84,9 @@ exports.deleteMember = async (memberId) => {
 
   return { message: "Membership revoked successfully." };
 };
-
-/**
- * ADMIN PAGE 1: All Students
- * Filters allowed: batch, gender
- */
+ //ADMIN PAGE 1: All Students
+ // Filters allowed: batch, gender
+ 
 exports.getAllStudentsForAdmin = async (filters = {}) => {
   const { batch, gender } = filters;
   let memberQuery = {};
@@ -117,10 +111,8 @@ exports.getAllStudentsForAdmin = async (filters = {}) => {
   return members.filter((m) => m.user !== null);
 };
 
-/**
- * ADMIN PAGE 2: Admins & Mentors
- * Filters allowed: role (mentor / admin), batch, gender
- */
+  //ADMIN PAGE 2: Admins & Mentors
+ // Filters allowed: role (mentor / admin), batch, gender
 exports.getStaffForAdmin = async (filters = {}) => {
   const { role, batch, gender } = filters;
   let memberQuery = {};
@@ -149,12 +141,10 @@ exports.getStaffForAdmin = async (filters = {}) => {
   return members.filter((m) => m.user !== null);
 };
 
- // 2. MENTOR OPERATIONS
-
-/**
- * MENTOR PAGE: View members in the mentor's batch
- * Filters allowed: filter = "all" (all students in batch) | "my_students" (assigned only)
- */
+              // 2. MENTOR OPERATIONS
+// MENTOR PAGE: View members in the mentor's batch
+ // Filters allowed: filter = "all" (all students in batch) | "my_students" (assigned only)
+ 
 exports.getMembersForMentor = async (mentorUserId, filters = {}) => {
   const { filter } = filters;
 
@@ -183,9 +173,7 @@ exports.getMembersForMentor = async (mentorUserId, filters = {}) => {
   return members.filter((m) => m.user !== null);
 };
 
-/**
- * MENTOR DETAILED VIEW: Get student detail ONLY if assigned to this mentor
- */
+// MENTOR DETAILED VIEW: Get student detail ONLY if assigned to this mentor
 exports.getStudentDetailForMentor = async (studentUserId, mentorUserId) => {
   const member = await Member.findOne({
     user: studentUserId,
@@ -204,15 +192,9 @@ exports.getStudentDetailForMentor = async (studentUserId, mentorUserId) => {
   return member;
 };
 
-/**
- * =========================================================================
- * 3. STUDENT OPERATIONS
- * =========================================================================
- */
+//   3. STUDENT OPERATIONS
+//  STUDENT PAGE: View overview of members in their batch (No sensitive details)
 
-/**
- * STUDENT PAGE: View overview of members in their batch (No sensitive details)
- */
 exports.getMembersForStudent = async (studentUserId) => {
   const studentMember = await Member.findOne({ user: studentUserId });
 
