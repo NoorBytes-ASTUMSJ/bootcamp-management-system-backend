@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const authController = require("../controllers/auth.controller");
-const { protect } = require("../middleware/auth.middleware");
+const { protect } = require("../middlewares/auth.middleware");
 
 // Public endpoints
 router.post("/register/student", authController.registerStudent);
