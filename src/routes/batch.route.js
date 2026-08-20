@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const batchController = require("../controllers/batch.controller");
-const { protect, authorize } = require("../middleware/auth.middleware");
+const { protect, authorize } = require("../middlewares/auth.middleware");
 
 router.use(protect);
 router.use(authorize("admin"));
