@@ -1,15 +1,15 @@
 const Batch = require("../models/Batch.model");
-const Member = require("../models/Member.model");
 const User = require("../models/User.model");
 
 // Get dashboard summary stats
 exports.getBatchDashboardStats = async () => {
-  const totalBatches = await Batch.countDocuments();
-  const activeBatches = await Batch.countDocuments({ status: "ongoing" });
-  
-  // Count directly by user roles
-  const totalStudents = await User.countDocuments({ role: "student" });
-  const totalMentors = await User.countDocuments({ role: "mentor" });
+  const [totalBatches, activeBatches, totalStudents, totalMentors] =
+    await Promise.all([
+      Batch.countDocuments(),
+      Batch.countDocuments({ status: "ongoing" }),
+      User.countDocuments({ role: "student" }),
+      User.countDocuments({ role: "mentor" }),
+    ]);
 
   return {
     totalBatches,
@@ -21,13 +21,15 @@ exports.getBatchDashboardStats = async () => {
 
 // Create a new batch
 exports.createBatch = async (adminId, batchData) => {
-  return await Batch.create({
+  const batch = await Batch.create({
     ...batchData,
     createdBy: adminId,
   });
+
+  return batch;
 };
 
-// Get all batches with dynamic student counts
+// Get all batches with dynamic member counts
 exports.getAllBatches = async () => {
   const batches = await Batch.find()
     .populate("createdBy", "fullName email")
@@ -36,15 +38,29 @@ exports.getAllBatches = async () => {
 
   const batchesWithCounts = await Promise.all(
     batches.map(async (batch) => {
-      const studentCount = await Member.countDocuments({ batch: batch._id });
-      return { ...batch, studentCount };
+      const [studentCount, mentorCount] = await Promise.all([
+        User.countDocuments({
+          batch: batch._id,
+          role: "student",
+        }),
+        User.countDocuments({
+          batch: batch._id,
+          role: "mentor",
+        }),
+      ]);
+
+      return {
+        ...batch,
+        studentCount,
+        mentorCount,
+      };
     })
   );
 
   return batchesWithCounts;
 };
 
-// Get single batch details by ID
+// Get a single batch with its students and mentors
 exports.getBatchById = async (batchId) => {
   const batch = await Batch.findById(batchId)
     .populate("createdBy", "fullName email")
@@ -56,31 +72,49 @@ exports.getBatchById = async (batchId) => {
     throw error;
   }
 
-  const studentCount = await Member.countDocuments({ batch: batchId });
-
-  const membersInBatch = await Member.find({ batch: batchId })
-    .populate({
-      path: "user",
-      select: "fullName email avatar role",
-      match: { role: "mentor" },
+  const [students, mentors] = await Promise.all([
+    User.find({
+      batch: batchId,
+      role: "student",
     })
-    .lean();
+      .select(
+        "fullName email phone gender university department year role createdAt"
+      )
+      .lean(),
 
-  const mentors = membersInBatch
-    .filter((m) => m.user !== null)
-    .map((m) => m.user);
+    User.find({
+      batch: batchId,
+      role: "mentor",
+    })
+      .select(
+        "fullName email phone gender university department year role createdAt"
+      )
+      .lean(),
+  ]);
 
-  return { ...batch, studentCount, mentors };
+  return {
+    ...batch,
+    studentCount: students.length,
+    mentorCount: mentors.length,
+    students,
+    mentors,
+  };
 };
 
 // Update batch
 exports.updateBatch = async (batchId, updateData) => {
-  delete updateData.createdBy;
+  // Never allow createdBy to be changed
+  const safeUpdateData = { ...updateData };
+  delete safeUpdateData.createdBy;
 
-  const updatedBatch = await Batch.findByIdAndUpdate(batchId, updateData, {
-    new: true,
-    runValidators: true,
-  });
+  const updatedBatch = await Batch.findByIdAndUpdate(
+    batchId,
+    safeUpdateData,
+    {
+      new: true,
+      runValidators: true,
+    }
+  ).populate("createdBy", "fullName email");
 
   if (!updatedBatch) {
     const error = new Error("Batch not found.");
@@ -92,16 +126,26 @@ exports.updateBatch = async (batchId, updateData) => {
 };
 
 // Delete batch
+// Removes the batch reference from all users before deleting the batch
 exports.deleteBatch = async (batchId) => {
   const batch = await Batch.findById(batchId);
+
   if (!batch) {
     const error = new Error("Batch not found.");
     error.statusCode = 404;
     throw error;
   }
 
-  await Member.updateMany({ batch: batchId }, { $unset: { batch: "" } });
+  // Remove batch reference from all users assigned to this batch
+  await User.updateMany(
+    { batch: batchId },
+    { $unset: { batch: "" } }
+  );
+
+  // Delete the batch
   await Batch.findByIdAndDelete(batchId);
 
-  return { message: "Batch deleted successfully." };
+  return {
+    message: "Batch deleted successfully.",
+  };
 };
