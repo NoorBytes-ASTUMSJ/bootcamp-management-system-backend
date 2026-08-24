@@ -6,30 +6,31 @@ const memberSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      unique: true, // one membership record per user
+      unique: true,
     },
+
     memberId: {
       type: String,
       required: true,
-      unique: true, // e.g. "ASTU-2026-014"
+      unique: true,
     },
-    batch: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Batch",
-    },
+
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
+
     assignedMentor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+
     joinedAt: {
       type: Date,
       default: Date.now,
     },
+
     status: {
       type: String,
       enum: ["active", "graduated", "dropped", "suspended"],
