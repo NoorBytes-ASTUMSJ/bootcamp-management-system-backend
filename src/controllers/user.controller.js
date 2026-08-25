@@ -73,7 +73,20 @@ exports.changePassword = async (req, res, next) => {
     next(error);
   }
 };
+exports.updateUser = async (req, res, next) => {
+  try {
+    const user = await userService.updateUser(req.params.userId, req.body);
 
+    res.status(200).json({
+      success: true,
+      data: {
+        user,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 /**
  * DELETE /api/users/:userId
  * Delete a user account and their linked member record (Admin)

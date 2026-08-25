@@ -122,6 +122,60 @@ exports.changePassword = async (
   return { message: "Password updated successfully." };
 };
 
+exports.updateUser = async (userId, updates) => {
+  delete updates.password;
+
+  const allowedFields = [
+    "fullName",
+    "email",
+    "phone",
+    "role",
+    "applicationType",
+    "gender",
+    "university",
+    "universityId",
+    "telegramUsername",
+    "batch",
+    "year",
+    "department",
+    "github",
+    "codeforces",
+    "leetcode",
+    "dailyAvailableHours",
+    "availabilityDescription",
+    "motivation",
+    "experience",
+    "expertise",
+  ];
+
+  const filteredUpdates = {};
+
+  allowedFields.forEach((field) => {
+    if (updates[field] !== undefined) {
+      filteredUpdates[field] = updates[field];
+    }
+  });
+
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    filteredUpdates,
+    {
+      new: true,
+      runValidators: true,
+    }
+  )
+    .select("-password")
+    .populate("batch", "name")
+    .lean();
+
+  if (!updatedUser) {
+    const error = new Error("User not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return updatedUser;
+};
 exports.deleteUser = async (userId) => {
   const user = await User.findById(userId);
 
