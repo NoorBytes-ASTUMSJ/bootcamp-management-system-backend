@@ -24,7 +24,7 @@ const announcementSchema = new mongoose.Schema(
 
     targetAudience: {
       type: String,
-      enum: ["public", "student", "mentor", "admin", "batch", "mentor_group"],
+      enum: ["public", "student", "mentor", "admin", "member", "mentor_group"],
       required: true,
     },
 
