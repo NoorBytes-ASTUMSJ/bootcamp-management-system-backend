@@ -1,12 +1,10 @@
 const memberService = require("../services/membership.service");
 const { successResponse } = require("../utils/apiResponse");
 
+// 1. ADMIN CONTROLLERS
 
-        // 1. ADMIN CONTROLLERS
- 
-//  POST /api/members/approve/:userId
+// POST /api/members/approve/:userId
 // Approve an applicant user and turn them into an official member (Admin)
-
 exports.approveMember = async (req, res, next) => {
   try {
     const { userId } = req.params;
@@ -17,8 +15,8 @@ exports.approveMember = async (req, res, next) => {
     next(error);
   }
 };
- // GET /api/members/students
-// Admin Page 1: Get all students with optional filters (batch, gender)
+
+// GET /api/members/students
 exports.getAllStudentsForAdmin = async (req, res, next) => {
   try {
     const students = await memberService.getAllStudentsForAdmin(req.query);
@@ -28,9 +26,7 @@ exports.getAllStudentsForAdmin = async (req, res, next) => {
   }
 };
 
- // GET /api/members/staff
- //Admin Page 2: Get all staff (mentors and admins) with optional filters (role, batch, gender)
-
+// GET /api/members/staff
 exports.getStaffForAdmin = async (req, res, next) => {
   try {
     const staff = await memberService.getStaffForAdmin(req.query);
@@ -39,8 +35,8 @@ exports.getStaffForAdmin = async (req, res, next) => {
     next(error);
   }
 };
- //PATCH /api/members/:memberId
- // Update member details like batch, mentor, or status (Admin CRUD)
+
+// PATCH /api/members/:memberId
 exports.updateMember = async (req, res, next) => {
   try {
     const member = await memberService.updateMember(req.params.memberId, req.body);
@@ -50,9 +46,7 @@ exports.updateMember = async (req, res, next) => {
   }
 };
 
-//  DELETE /api/members/:memberId
-// Delete member profile and revert user role back to applicant (Admin CRUD)
-
+// DELETE /api/members/:memberId
 exports.deleteMember = async (req, res, next) => {
   try {
     const result = await memberService.deleteMember(req.params.memberId);
@@ -61,11 +55,8 @@ exports.deleteMember = async (req, res, next) => {
     next(error);
   }
 };
-      // 2. MENTOR CONTROLLERS
 
-//  GET /api/members/mentor/my-batch
-// View members in the mentor's assigned batch (filter: "all" | "my_students")
-
+// 2. MENTOR CONTROLLERS
 exports.getMembersForMentor = async (req, res, next) => {
   try {
     const mentorUserId = req.user.id;
@@ -76,9 +67,6 @@ exports.getMembersForMentor = async (req, res, next) => {
   }
 };
 
-//GET /api/members/mentor/student/:studentUserId
-//  View detailed profile of a student assigned to this mentor
- 
 exports.getStudentDetailForMentor = async (req, res, next) => {
   try {
     const mentorUserId = req.user.id;
@@ -89,12 +77,8 @@ exports.getStudentDetailForMentor = async (req, res, next) => {
     next(error);
   }
 };
- 
-//3. STUDENT CONTROLLERS
 
-//GET /api/members/student/my-batch
-// View overview of members in the student's batch
-
+// 3. STUDENT CONTROLLERS
 exports.getMembersForStudent = async (req, res, next) => {
   try {
     const studentUserId = req.user.id;
