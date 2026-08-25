@@ -71,13 +71,18 @@ exports.getStudentDetailForMentor = async (req, res, next) => {
   try {
     const mentorUserId = req.user.id;
     const { studentUserId } = req.params;
-    const studentDetail = await memberService.getStudentDetailForMentor(studentUserId, mentorUserId);
+    
+    // Pass mentorUserId first, then studentUserId
+    const studentDetail = await memberService.getStudentDetailForMentor(
+      mentorUserId, 
+      studentUserId
+    );
+    
     return successResponse(res, { student: studentDetail }, "Student detail retrieved successfully.", 200);
   } catch (error) {
     next(error);
   }
 };
-
 // 3. STUDENT CONTROLLERS
 exports.getMembersForStudent = async (req, res, next) => {
   try {
