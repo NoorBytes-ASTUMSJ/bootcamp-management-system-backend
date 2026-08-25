@@ -2,23 +2,14 @@ const User = require("../models/User.model");
 const Member = require("../models/Member.model");
 
 exports.getAllUsers = async (queryParams = {}) => {
-  const {
-    search,
-    role,
-    university,
-    gender,
-    batch,
-  } = queryParams;
+  const { search, role, university, gender, batch } = queryParams;
 
   const query = {};
 
   if (search && search.trim()) {
     const searchRegex = new RegExp(search.trim(), "i");
 
-    query.$or = [
-      { fullName: searchRegex },
-      { email: searchRegex },
-    ];
+    query.$or = [{ fullName: searchRegex }, { email: searchRegex }];
   }
 
   if (gender && gender !== "ALL") {
@@ -38,9 +29,7 @@ exports.getAllUsers = async (queryParams = {}) => {
       query.role = {
         $in: ["student", "mentor", "admin"],
       };
-    } else if (
-      ["user", "student", "mentor", "admin"].includes(role)
-    ) {
+    } else if (["user", "student", "mentor", "admin"].includes(role)) {
       query.role = role;
     }
   }
@@ -87,11 +76,7 @@ exports.updateProfile = async (userId, updates) => {
   return updatedUser;
 };
 
-exports.changePassword = async (
-  userId,
-  currentPassword,
-  newPassword
-) => {
+exports.changePassword = async (userId, currentPassword, newPassword) => {
   const user = await User.findById(userId).select("+password");
 
   if (!user) {
@@ -109,9 +94,7 @@ exports.changePassword = async (
   }
 
   if (newPassword.length < 8) {
-    const error = new Error(
-      "New password must be at least 8 characters long."
-    );
+    const error = new Error("New password must be at least 8 characters long.");
     error.statusCode = 400;
     throw error;
   }
@@ -122,6 +105,56 @@ exports.changePassword = async (
   return { message: "Password updated successfully." };
 };
 
+exports.updateUser = async (userId, updates) => {
+  delete updates.password;
+
+  const allowedFields = [
+    "fullName",
+    "email",
+    "phone",
+    "role",
+    "applicationType",
+    "gender",
+    "university",
+    "universityId",
+    "telegramUsername",
+    "batch",
+    "year",
+    "department",
+    "github",
+    "codeforces",
+    "leetcode",
+    "dailyAvailableHours",
+    "availabilityDescription",
+    "motivation",
+    "experience",
+    "expertise",
+  ];
+
+  const filteredUpdates = {};
+
+  allowedFields.forEach((field) => {
+    if (updates[field] !== undefined) {
+      filteredUpdates[field] = updates[field];
+    }
+  });
+
+  const updatedUser = await User.findByIdAndUpdate(userId, filteredUpdates, {
+    new: true,
+    runValidators: true,
+  })
+    .select("-password")
+    .populate("batch", "name")
+    .lean();
+
+  if (!updatedUser) {
+    const error = new Error("User not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return updatedUser;
+};
 exports.deleteUser = async (userId) => {
   const user = await User.findById(userId);
 
@@ -136,4 +169,3 @@ exports.deleteUser = async (userId) => {
 
   return { message: "User deleted successfully." };
 };
-
