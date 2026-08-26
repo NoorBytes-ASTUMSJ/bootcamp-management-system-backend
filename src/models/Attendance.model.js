@@ -32,8 +32,19 @@ const attendanceSchema = new mongoose.Schema(
     sessionType: {
       type: String,
       enum: {
-        values: ["lecture", "contest", "experience_sharing", "other"],
-        message: "Session type must be: lecture, contest, experience_sharing, or other",
+        values: [
+          "lecture",
+          "contest",
+          "experience_sharing",
+          "showcase",
+          "other",
+          "weekly_meeting",
+          "question_answer",
+          "contest_review",
+          "assignment_presentation",
+        ],
+        message:
+          "Session type must be: lecture, contest, experience_sharing, showcase, or other",
       },
       default: "lecture",
       required: true,
@@ -70,12 +81,12 @@ const attendanceSchema = new mongoose.Schema(
       required: [true, "Recorder reference is required"],
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 attendanceSchema.index(
   { member: 1, batch: 1, date: 1, sessionTopic: 1 },
-  { unique: true }
+  { unique: true },
 );
 
 attendanceSchema.index({ batch: 1, date: -1 });

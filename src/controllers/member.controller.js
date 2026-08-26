@@ -10,7 +10,12 @@ exports.approveMember = async (req, res, next) => {
     const { userId } = req.params;
     const adminId = req.user.id;
     const result = await memberService.approveMember(userId, adminId, req.body);
-    return successResponse(res, result, "User approved and member record created successfully.", 201);
+    return successResponse(
+      res,
+      result,
+      "User approved and member record created successfully.",
+      201,
+    );
   } catch (error) {
     next(error);
   }
@@ -20,7 +25,12 @@ exports.approveMember = async (req, res, next) => {
 exports.getAllStudentsForAdmin = async (req, res, next) => {
   try {
     const students = await memberService.getAllStudentsForAdmin(req.query);
-    return successResponse(res, { students }, "Students retrieved successfully.", 200);
+    return successResponse(
+      res,
+      { students },
+      "Students retrieved successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }
@@ -30,7 +40,12 @@ exports.getAllStudentsForAdmin = async (req, res, next) => {
 exports.getStaffForAdmin = async (req, res, next) => {
   try {
     const staff = await memberService.getStaffForAdmin(req.query);
-    return successResponse(res, { staff }, "Staff members retrieved successfully.", 200);
+    return successResponse(
+      res,
+      { staff },
+      "Staff members retrieved successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }
@@ -39,8 +54,16 @@ exports.getStaffForAdmin = async (req, res, next) => {
 // PATCH /api/members/:memberId
 exports.updateMember = async (req, res, next) => {
   try {
-    const member = await memberService.updateMember(req.params.memberId, req.body);
-    return successResponse(res, { member }, "Member details updated successfully.", 200);
+    const member = await memberService.updateMember(
+      req.params.memberId,
+      req.body,
+    );
+    return successResponse(
+      res,
+      { member },
+      "Member details updated successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }
@@ -60,8 +83,16 @@ exports.deleteMember = async (req, res, next) => {
 exports.getMembersForMentor = async (req, res, next) => {
   try {
     const mentorUserId = req.user.id;
-    const members = await memberService.getMembersForMentor(mentorUserId, req.query);
-    return successResponse(res, { members }, "Batch members retrieved successfully.", 200);
+    const members = await memberService.getMembersForMentor(
+      mentorUserId,
+      req.query,
+    );
+    return successResponse(
+      res,
+      { members },
+      "Batch members retrieved successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }
@@ -71,14 +102,19 @@ exports.getStudentDetailForMentor = async (req, res, next) => {
   try {
     const mentorUserId = req.user.id;
     const { studentUserId } = req.params;
-    
+
     // Pass mentorUserId first, then studentUserId
     const studentDetail = await memberService.getStudentDetailForMentor(
-      mentorUserId, 
-      studentUserId
+      mentorUserId,
+      studentUserId,
     );
-    
-    return successResponse(res, { student: studentDetail }, "Student detail retrieved successfully.", 200);
+
+    return successResponse(
+      res,
+      { student: studentDetail },
+      "Student detail retrieved successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }
@@ -88,7 +124,12 @@ exports.getMembersForStudent = async (req, res, next) => {
   try {
     const studentUserId = req.user.id;
     const members = await memberService.getMembersForStudent(studentUserId);
-    return successResponse(res, { members }, "Batch members overview retrieved successfully.", 200);
+    return successResponse(
+      res,
+      { members },
+      "Batch members overview retrieved successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }

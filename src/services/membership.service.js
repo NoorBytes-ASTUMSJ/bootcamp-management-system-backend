@@ -60,14 +60,10 @@ exports.approveMember = async (applicantId, adminId, memberData = {}) => {
 };
 
 exports.updateMember = async (memberId, updateData) => {
-  const updatedMember = await Member.findByIdAndUpdate(
-    memberId,
-    updateData,
-    {
-      new: true,
-      runValidators: true,
-    }
-  )
+  const updatedMember = await Member.findByIdAndUpdate(memberId, updateData, {
+    new: true,
+    runValidators: true,
+  })
     .populate({
       path: "user",
       select: "-password",
@@ -143,12 +139,7 @@ exports.getAllStudentsForAdmin = async (filters = {}) => {
 };
 
 exports.getStaffForAdmin = async (filters = {}) => {
-  const {
-    role,
-    university,
-    gender,
-    batch,
-  } = filters;
+  const { role, university, gender, batch } = filters;
 
   const query = {
     role: {
@@ -179,13 +170,8 @@ exports.getStaffForAdmin = async (filters = {}) => {
     .lean();
 };
 
-exports.getMembersForMentor = async (
-  mentorUserId,
-  filters = {}
-) => {
-  const mentor = await User.findById(mentorUserId)
-    .select("batch role")
-    .lean();
+exports.getMembersForMentor = async (mentorUserId, filters = {}) => {
+  const mentor = await User.findById(mentorUserId).select("batch role").lean();
 
   if (!mentor) {
     const error = new Error("Mentor not found.");
@@ -212,6 +198,8 @@ exports.getMembersForMentor = async (
       },
     })
     .populate("assignedMentor", "fullName email")
+    .populate("approvedBy", "fullName email")
+    .sort({ createdAt: -1 })
     .lean();
 
   return members.filter((member) => {
@@ -237,9 +225,7 @@ exports.getMembersForStudent = async (studentUserId, filter = "all") => {
   });
 
   if (!studentMember) {
-    const error = new Error(
-      "You are not currently enrolled as a student."
-    );
+    const error = new Error("You are not currently enrolled as a student.");
     error.statusCode = 400;
     throw error;
   }
@@ -291,10 +277,7 @@ exports.getMembersForStudent = async (studentUserId, filter = "all") => {
       return false;
     }
 
-    return (
-      member.user.batch._id.toString() ===
-      student.batch.toString()
-    );
+    return member.user.batch._id.toString() === student.batch.toString();
   });
 };
 
@@ -319,6 +302,7 @@ exports.getStudentDetailForMentor = async (mentorUserId, studentUserId) => {
   if (!studentMember) {
     const error = new Error("Student not found or not assigned to you.");
     error.statusCode = 403;
+
     throw error;
   }
 

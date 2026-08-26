@@ -56,7 +56,9 @@ exports.getAttendanceByRole = async (user, filters = {}) => {
 
   // MENTOR SCOPE: Restrict strictly to assigned students
   if (user.role === "mentor") {
-    const assignedMembers = await Member.find({ assignedMentor: user._id }).select("_id");
+    const assignedMembers = await Member.find({
+      assignedMentor: user._id,
+    }).select("_id");
     query.member = { $in: assignedMembers.map((m) => m._id) };
   }
 
@@ -79,7 +81,8 @@ exports.getAttendanceByRole = async (user, filters = {}) => {
   const records = await Attendance.find(query)
     .populate({
       path: "member",
-      populate: { path: "user", select: "fullName email avatar" },
+      // FIXED: Added gender to the select string here!
+      populate: { path: "user", select: "fullName email avatar gender" },
     })
     .populate("batch", "name")
     .sort({ date: -1 });
@@ -118,7 +121,7 @@ exports.getStudentAttendanceStats = async (studentUserId) => {
       acc[r.status] = (acc[r.status] || 0) + 1;
       return acc;
     },
-    { present: 0, absent: 0, late: 0, excused: 0 }
+    { present: 0, absent: 0, late: 0, excused: 0 },
   );
 
   const attended = stats.present + stats.late + stats.excused;
@@ -137,7 +140,7 @@ exports.updateAttendance = async (attendanceId, updateData) => {
   const attendance = await Attendance.findByIdAndUpdate(
     attendanceId,
     updateData,
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   );
 
   if (!attendance) {
