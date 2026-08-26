@@ -2,7 +2,6 @@ const Attendance = require("../models/Attendance.model");
 const Member = require("../models/Member.model");
 const Batch = require("../models/Batch.model");
 
-// 1. Bulk Create or Update Attendance (Admin & Mentor)
 exports.markBulkAttendance = async ({
   records,
   batchId,
@@ -50,19 +49,23 @@ exports.markBulkAttendance = async ({
   return { message: "Attendance saved successfully.", result };
 };
 
-// 2. Fetch Attendance Scoped by Role (Admin vs Mentor)
 exports.getAttendanceByRole = async (user, filters = {}) => {
   let query = {};
 
-  // MENTOR SCOPE: Restrict strictly to assigned students
   if (user.role === "mentor") {
+    const mentorId = user.id || user._id;
+
     const assignedMembers = await Member.find({
-      assignedMentor: user._id,
+      assignedMentor: mentorId,
     }).select("_id");
+
     query.member = { $in: assignedMembers.map((m) => m._id) };
+
+    if (filters.batchId) {
+      query.batch = filters.batchId;
+    }
   }
 
-  // ADMIN SCOPE: Restrict to selected batch from dashboard or active batch
   if (user.role === "admin") {
     if (filters.batchId) {
       query.batch = filters.batchId;
@@ -72,16 +75,23 @@ exports.getAttendanceByRole = async (user, filters = {}) => {
         query.batch = activeBatch._id;
       }
     }
+
+    query.sessionType = {
+      $nin: [
+        "weekly_meeting",
+        "question_answer",
+        "contest_review",
+        "assignment_presentation",
+      ],
+    };
   }
 
-  // Optional date or session filter
   if (filters.date) query.date = new Date(filters.date);
   if (filters.sessionTopic) query.sessionTopic = filters.sessionTopic;
 
   const records = await Attendance.find(query)
     .populate({
       path: "member",
-      // FIXED: Added gender to the select string here!
       populate: { path: "user", select: "fullName email avatar gender" },
     })
     .populate("batch", "name")
@@ -90,7 +100,6 @@ exports.getAttendanceByRole = async (user, filters = {}) => {
   return records;
 };
 
-// 3. Student Dashboard Overview & Stats
 exports.getStudentAttendanceStats = async (studentUserId) => {
   const studentMember = await Member.findOne({ user: studentUserId });
 
@@ -135,7 +144,6 @@ exports.getStudentAttendanceStats = async (studentUserId) => {
   };
 };
 
-// 4. Update Single Attendance Record (Override / Note Edit)
 exports.updateAttendance = async (attendanceId, updateData) => {
   const attendance = await Attendance.findByIdAndUpdate(
     attendanceId,
