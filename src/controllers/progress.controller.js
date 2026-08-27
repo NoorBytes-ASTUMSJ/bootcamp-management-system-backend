@@ -1,3 +1,6 @@
+const ProgressRecord = require("../models/ProgressRecord.model");
+const User = require("../models/User.model");
+const Member = require("../models/Member.model");
 const progressService = require("../services/progress.service");
 const { successResponse } = require("../utils/apiResponse");
 
@@ -26,8 +29,84 @@ exports.updateStudentStatus = async (req, res, next) => {
 // Get Dashboard Rows (Admin / Mentor)
 exports.getProgressDashboard = async (req, res, next) => {
   try {
-    const data = await progressService.getProgressDashboard(req.query);
+    const filterQuery = { ...req.query };
+
+    if (req.user.role === "mentor") {
+  filterQuery.mentorId = req.user.id;
+} else if (req.user.role === "admin") {
+  filterQuery.scope = "global";
+
+    }
+
+    const data = await progressService.getProgressDashboard(filterQuery);
     return successResponse(res, { students: data }, "Progress dashboard data retrieved.", 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get All Raw Progress Items (Admin / Mentor) - Required for dynamic table matrix mapping
+exports.getAllProgressItems = async (req, res, next) => {
+  try {
+    const { batchId } = req.query;
+
+    let studentFilter = {};
+
+    if (batchId && batchId !== "ALL") {
+      const usersInBatch = await User.find({ batch: batchId, role: "student" }).select("_id");
+      const userIds = usersInBatch.map((u) => u._id);
+      const members = await Member.find({ user: { $in: userIds } }).select("_id");
+      studentFilter = { student: { $in: members.map((m) => m._id) } };
+    }
+
+    if (req.user.role === "mentor") {
+      const myStudents = await Member.find({ assignedMentor: req.user.id }).select("_id");
+      const myStudentIds = myStudents.map((m) => String(m._id));
+
+      studentFilter = studentFilter.student
+        ? {
+            student: {
+              $in: studentFilter.student.$in.filter((id) =>
+                myStudentIds.includes(String(id))
+              ),
+            },
+          }
+        : { student: { $in: myStudentIds } };
+    }
+
+    const records = await ProgressRecord.find(studentFilter)
+      .populate({
+        path: "task",
+        populate: { path: "releasedBy", select: "fullName role" },
+      })
+      .populate("student", "_id")
+      .lean();
+
+    let filtered = records.filter((r) => r.task);
+    if (req.user.role === "admin") {
+  filtered = filtered.filter((r) => r.task.scope === "global");
+} else if (req.user.role === "mentor") {
+  filtered = filtered.filter(
+    (r) =>
+      r.task.scope === "global" ||
+      String(r.task.releasedBy?._id || r.task.releasedBy) === String(req.user.id)
+  );
+}
+
+    const items = filtered.map((r) => ({
+      id: r.task._id,
+      student: r.student,
+      status: r.status,
+      title: r.task.title,
+      topicCategory: r.task.topicCategory,
+      resourceType: r.task.resourceType,
+      resourceLink: r.task.resourceLink,
+      weekNumber: r.task.weekNumber,
+      instructions: r.task.instructions,
+      releasedBy: r.task.releasedBy,
+    }));
+
+    return successResponse(res, { items }, "All progress items retrieved successfully.", 200);
   } catch (error) {
     next(error);
   }
@@ -49,6 +128,35 @@ exports.getStudentDashboard = async (req, res, next) => {
   try {
     const data = await progressService.getStudentDashboard(req.user.id);
     return successResponse(res, { dashboard: data }, "Student progress dashboard loaded.", 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateProgressItem = async (req, res, next) => {
+  try {
+    const { progressId } = req.params;
+    const task = await progressService.updateProgressItem(
+      progressId,
+      req.user.id,
+      req.user.role,
+      req.body
+    );
+    return successResponse(res, { task }, "Progress task updated successfully.", 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Delete Progress Task
+exports.deleteProgressItem = async (req, res, next) => {
+  try {
+    const result = await progressService.deleteProgressItem(
+      req.params.progressId,
+      req.user.id,
+      req.user.role
+    );
+    res.status(200).json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
