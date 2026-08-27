@@ -1,7 +1,10 @@
 const Assignment = require("../models/Assignment.model");
 const Member = require("../models/Member.model");
+const Submission = require("../models/Submission.model");
+const User = require("../models/User.model");
+const fs = require("fs");
+const path = require("path");
 
-// 1. Create a new assignment
 exports.createAssignment = async (creatorId, creatorRole, data) => {
   const {
     title,
@@ -18,51 +21,74 @@ exports.createAssignment = async (creatorId, creatorRole, data) => {
   } = data;
 
   let targetBatch = batch;
+  let targetMemberIds = [];
 
-  // If created by a MENTOR: Automatically retrieve their assigned batch
   if (creatorRole === "mentor") {
-    const mentorMember = await Member.findOne({ user: creatorId });
+    const mentorUser = await User.findById(creatorId);
 
-    if (!mentorMember || !mentorMember.batch) {
-      const error = new Error("You are not currently assigned to an active batch.");
+    if (!mentorUser || !mentorUser.batch) {
+      const error = new Error(
+        "You are not currently assigned to an active batch.",
+      );
       error.statusCode = 400;
       throw error;
     }
 
-    // Lock the batch to the mentor's current batch
-    targetBatch = mentorMember.batch;
+    targetBatch = mentorUser.batch;
+
+    const assignedStudents = await Member.find({
+      assignedMentor: creatorId,
+      status: "active",
+    });
+
+    if (assignedStudents.length === 0) {
+      const error = new Error(
+        "You have no active students assigned to you to receive this assignment.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    targetMemberIds = assignedStudents.map((s) => s._id);
   }
 
-  // If created by ADMIN for a global assignment: Ensure batch ID is provided
   if (creatorRole === "admin" && scope === "global" && !targetBatch) {
-    const error = new Error("Please select a batch for this global assignment.");
+    const error = new Error(
+      "Please select a batch for this global assignment.",
+    );
     error.statusCode = 400;
     throw error;
   }
 
-  // If mentor_assigned scope: Ensure valid targeted student members are supplied
-  if (scope === "mentor_assigned") {
+  if (scope === "mentor_assigned" && creatorRole === "admin") {
     if (!assignedMembers || assignedMembers.length === 0) {
-      const error = new Error("Please select at least one student for mentor_assigned scope.");
+      const error = new Error(
+        "Please select at least one student for mentor_assigned scope.",
+      );
       error.statusCode = 400;
       throw error;
     }
 
     const validMembers = await Member.find({ _id: { $in: assignedMembers } });
     if (validMembers.length !== assignedMembers.length) {
-      const error = new Error("One or more assigned student members were not found.");
+      const error = new Error(
+        "One or more assigned student members were not found.",
+      );
       error.statusCode = 404;
       throw error;
     }
+    targetMemberIds = assignedMembers;
   }
+
+  const finalScope = creatorRole === "mentor" ? "mentor_assigned" : scope;
 
   const assignment = await Assignment.create({
     title,
     description,
     instructions,
-    scope,
+    scope: finalScope,
     batch: targetBatch,
-    assignedMembers: scope === "mentor_assigned" ? assignedMembers : [],
+    assignedMembers: finalScope === "mentor_assigned" ? targetMemberIds : [],
     deadline,
     maxScore,
     fileUrl,
@@ -71,16 +97,35 @@ exports.createAssignment = async (creatorId, creatorRole, data) => {
     createdBy: creatorId,
   });
 
+  if (creatorRole === "admin" && finalScope === "global") {
+    const usersInBatch = await User.find({
+      batch: targetBatch,
+      role: "student",
+    });
+    const userIds = usersInBatch.map((u) => u._id);
+
+    const studentsInBatch = await Member.find({ user: { $in: userIds } });
+    targetMemberIds = studentsInBatch.map((student) => student._id);
+  }
+
+  const submissionRecords = targetMemberIds.map((memberId) => ({
+    assignment: assignment._id,
+    member: memberId,
+    status: "not_started",
+  }));
+
+  if (submissionRecords.length > 0) {
+    await Submission.insertMany(submissionRecords);
+  }
+
   return assignment;
 };
 
-// 2. Get all assignments (Admin overview)
 exports.getAdminAssignments = async (query = {}) => {
-  const { batchId, scope } = query;
-  const filter = {};
+  const { batchId } = query;
+  const filter = { scope: "global" };
 
   if (batchId) filter.batch = batchId;
-  if (scope) filter.scope = scope;
 
   return await Assignment.find(filter)
     .populate("createdBy", "fullName email role")
@@ -89,23 +134,33 @@ exports.getAdminAssignments = async (query = {}) => {
     .lean();
 };
 
-// 3. Get assignments created by or relevant to a Mentor
 exports.getMentorAssignments = async (mentorUserId) => {
-  return await Assignment.find({ createdBy: mentorUserId })
+  const mentorUser = await User.findById(mentorUserId);
+
+  const filter = {
+    $or: [{ createdBy: mentorUserId }],
+  };
+
+  if (mentorUser && mentorUser.batch) {
+    filter.$or.push({ scope: "global", batch: mentorUser.batch });
+  }
+
+  return await Assignment.find(filter)
     .populate("batch", "name")
     .populate({
       path: "assignedMembers",
       populate: { path: "user", select: "fullName email" },
     })
+    .populate("createdBy", "fullName email role")
     .sort({ createdAt: -1 })
     .lean();
 };
 
-// 4. Get assignments assigned to a specific Student
 exports.getStudentAssignments = async (studentUserId) => {
+  const studentUser = await User.findById(studentUserId);
   const studentMember = await Member.findOne({ user: studentUserId });
 
-  if (!studentMember || !studentMember.batch) {
+  if (!studentUser || !studentUser.batch || !studentMember) {
     const error = new Error("Student membership or batch record not found.");
     error.statusCode = 404;
     throw error;
@@ -113,7 +168,7 @@ exports.getStudentAssignments = async (studentUserId) => {
 
   const filter = {
     $or: [
-      { scope: "global", batch: studentMember.batch },
+      { scope: "global", batch: studentUser.batch },
       { scope: "mentor_assigned", assignedMembers: studentMember._id },
     ],
   };
@@ -125,7 +180,6 @@ exports.getStudentAssignments = async (studentUserId) => {
     .lean();
 };
 
-// 5. Get assignment details by ID
 exports.getAssignmentById = async (assignmentId) => {
   const assignment = await Assignment.findById(assignmentId)
     .populate("createdBy", "fullName email role")
@@ -145,8 +199,12 @@ exports.getAssignmentById = async (assignmentId) => {
   return assignment;
 };
 
-// 6. Update assignment
-exports.updateAssignment = async (assignmentId, userId, userRole, updateData) => {
+exports.updateAssignment = async (
+  assignmentId,
+  userId,
+  userRole,
+  updateData,
+) => {
   const assignment = await Assignment.findById(assignmentId);
 
   if (!assignment) {
@@ -155,7 +213,10 @@ exports.updateAssignment = async (assignmentId, userId, userRole, updateData) =>
     throw error;
   }
 
-  if (userRole !== "admin" && assignment.createdBy.toString() !== userId.toString()) {
+  if (
+    userRole !== "admin" &&
+    assignment.createdBy.toString() !== userId.toString()
+  ) {
     const error = new Error("Not authorized to update this assignment.");
     error.statusCode = 403;
     throw error;
@@ -167,7 +228,6 @@ exports.updateAssignment = async (assignmentId, userId, userRole, updateData) =>
   return assignment;
 };
 
-// 7. Delete assignment
 exports.deleteAssignment = async (assignmentId, userId, userRole) => {
   const assignment = await Assignment.findById(assignmentId);
 
@@ -177,12 +237,24 @@ exports.deleteAssignment = async (assignmentId, userId, userRole) => {
     throw error;
   }
 
-  if (userRole !== "admin" && assignment.createdBy.toString() !== userId.toString()) {
+  if (
+    userRole !== "admin" &&
+    assignment.createdBy.toString() !== userId.toString()
+  ) {
     const error = new Error("Not authorized to delete this assignment.");
     error.statusCode = 403;
     throw error;
   }
 
+  if (assignment.fileUrl) {
+    const filePath = path.join(__dirname, "..", assignment.fileUrl);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+
+  await Submission.deleteMany({ assignment: assignmentId });
   await Assignment.findByIdAndDelete(assignmentId);
+
   return { message: "Assignment deleted successfully." };
 };
