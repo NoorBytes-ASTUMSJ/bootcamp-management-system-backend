@@ -1,12 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const assignmentController = require("../controllers/assignment.controller");
-const { protect, authorize } = require("../middleware/auth.middleware");
+const { protect, authorize } = require("../middlewares/auth.middleware");
+const upload = require("../middlewares/upload.middleware");
 
-// Require authentication for all assignment routes
 router.use(protect);
 
-// Role-specific assignment queries
 router.get(
   "/admin",
   authorize("admin"),
@@ -25,24 +24,22 @@ router.get(
   assignmentController.getStudentAssignments,
 );
 
-// Create assignment (Admins & Mentors)
 router.post(
   "/",
   authorize("admin", "mentor"),
+  upload.single("file"),
   assignmentController.createAssignment,
 );
 
-// Single assignment management
-router.get("/:assignmentId", assignmentController.getAssignmentById);
-
 router.patch(
-  "/:assignmentId",
+  "/:id",
   authorize("admin", "mentor"),
+  upload.single("file"),
   assignmentController.updateAssignment,
 );
 
 router.delete(
-  "/:assignmentId",
+  "/:id",
   authorize("admin", "mentor"),
   assignmentController.deleteAssignment,
 );

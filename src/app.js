@@ -6,6 +6,9 @@ const batchRoutes = require("./routes/batch.route");
 const userRoutes = require("./routes/user.routes");
 const memberRoutes = require("./routes/member.routes");
 const attendanceRoutes = require("./routes/attendance.route");
+const submissionRoutes = require("./routes/submission.routes");
+const assignmentRoutes = require("./routes/assignment.routes");
+
 const progressRoutes = require("./routes/progress.route");
 const announcementRoutes = require("./routes/announcement.route");
 const errorHandler = require("./middlewares/errorHandler.middleware");
@@ -55,6 +58,8 @@ app.use("/api/batches", batchRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/members", memberRoutes);
 app.use("/api/attendance", attendanceRoutes);
+app.use("/api/submissions", submissionRoutes);
+app.use("/api/assignments", assignmentRoutes);
 app.use("/api/progress", progressRoutes);
 app.use("/api/announcements", announcementRoutes);
 
