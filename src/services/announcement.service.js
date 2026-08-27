@@ -1,26 +1,33 @@
 const Announcement = require("../models/Announcement.model");
 const Member = require("../models/Member.model");
 
-// 1. Create Announcement (Admin or Mentor)
+function cleanFilterValue(value) {
+  if (!value) return null;
+  if (typeof value === "string" && value.trim().toUpperCase() === "ALL") return null;
+  return value;
+}
+
 exports.createAnnouncement = async (creatorId, creatorRole, data) => {
   let batchId = data.batch;
   let targetMembers = data.targetMembers || [];
 
-  // MENTOR LOGIC: Lock to mentor's assigned batch/mentees
   if (creatorRole === "mentor") {
+    // Find the mentor's own member record to check for a batch (optional fallback)
     const mentorMember = await Member.findOne({ user: creatorId });
+    batchId = data.batch || mentorMember?.batch || null;
 
-    if (!mentorMember || !mentorMember.batch) {
-      const error = new Error("You are not currently assigned to an active batch.");
-      error.statusCode = 400;
-      throw error;
+    // Automatically find all students assigned to this specific mentor
+    const mentees = await Member.find({ assignedMentor: creatorId }).select("_id");
+    targetMembers = mentees.map((m) => m._id);
+
+    // Default target audience for mentor announcements to their student group
+    if (!data.targetAudience) {
+      data.targetAudience = "mentor_group";
     }
-
-    batchId = mentorMember.batch;
-
-    if (data.targetAudience === "mentor_group") {
-      const mentees = await Member.find({ assignedMentor: creatorId }).select("_id");
-      targetMembers = mentees.map((m) => m._id);
+  } else {
+    const needsBatchScope = ["student", "mentor", "admin", "member"].includes(data.targetAudience);
+    if (!needsBatchScope || !batchId) {
+      batchId = null;
     }
   }
 
@@ -32,19 +39,37 @@ exports.createAnnouncement = async (creatorId, creatorRole, data) => {
   });
 };
 
-// 2. Fetch Announcements for Admin & Mentor Dashboard
 exports.getAdminMentorAnnouncements = async (user, filters = {}) => {
   const query = {};
 
   if (user.role === "mentor") {
-    query.createdBy = user._id;
+    const mentorMember = await Member.findOne({ user: user._id });
+
+    // Allow mentors to see their own announcements OR admin broadcasts targeted appropriately
+    query.$or = [
+      { createdBy: user._id },
+      { targetAudience: "public" },
+      { targetAudience: "mentor" },
+      { targetAudience: "member" },
+      { targetAudience: "mentor_group" },
+      { targetAudience: "batch", batch: mentorMember?.batch }
+    ];
   } else if (user.role === "admin") {
-    if (filters.batchId) query.batch = filters.batchId;
-    if (filters.audience) query.targetAudience = filters.audience;
+    const batchId = cleanFilterValue(filters.batchId);
+    const audience = cleanFilterValue(filters.audience);
+
+    if (batchId) query.batch = batchId;
+    if (audience) query.targetAudience = audience;
   }
 
+  // Status ("draft" / "published") is intentionally NOT defaulted to
+  // "published" here — admins (and mentors, for their own posts) need to
+  // see drafts on the management page. It only filters when a real,
+  // specific status is passed (not the "ALL" sentinel).
+  const status = cleanFilterValue(filters.status);
+  if (status) query.status = status;
+
   if (filters.priority) query.priority = filters.priority;
-  if (filters.status) query.status = filters.status;
 
   return await Announcement.find(query)
     .populate("createdBy", "fullName email role")
@@ -53,7 +78,6 @@ exports.getAdminMentorAnnouncements = async (user, filters = {}) => {
     .lean();
 };
 
-// 3. Fetch Feed for Logged-In User (Students / Public Users)
 exports.getUserAnnouncements = async (userId, userRole) => {
   if (userRole === "public" || userRole === "user") {
     return await Announcement.find({ targetAudience: "public", status: "published" })
@@ -69,6 +93,7 @@ exports.getUserAnnouncements = async (userId, userRole) => {
     $or: [
       { targetAudience: "public" },
       { targetAudience: "student" },
+      { targetAudience: "member" },
       { targetAudience: "batch", batch: studentMember?.batch },
       { targetAudience: "mentor_group", targetMembers: studentMember?._id },
     ],
@@ -81,7 +106,6 @@ exports.getUserAnnouncements = async (userId, userRole) => {
     .lean();
 };
 
-// 4. Update Announcement
 exports.updateAnnouncement = async (id, userId, userRole, data) => {
   const announcement = await Announcement.findById(id);
   if (!announcement) throw new Error("Announcement not found.");
@@ -92,11 +116,18 @@ exports.updateAnnouncement = async (id, userId, userRole, data) => {
     throw error;
   }
 
+  const needsBatchScope = data.targetAudience
+    ? ["student", "mentor", "admin", "member", "mentor_group"].includes(data.targetAudience)
+    : ["student", "mentor", "admin", "member", "mentor_group"].includes(announcement.targetAudience);
+
+  if (!needsBatchScope || data.batch === "" || data.batch === undefined) {
+    data.batch = null;
+  }
+
   Object.assign(announcement, data);
   return await announcement.save();
 };
 
-// 5. Delete Announcement
 exports.deleteAnnouncement = async (id, userId, userRole) => {
   const announcement = await Announcement.findById(id);
   if (!announcement) throw new Error("Announcement not found.");
