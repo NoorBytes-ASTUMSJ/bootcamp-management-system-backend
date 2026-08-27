@@ -8,13 +8,17 @@ const progressSchema = new mongoose.Schema(
       required: [true, "Student reference is required"],
     },
 
+    batch: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Batch",
+      required: [true, "Batch reference is required"],
+    },
     title: {
       type: String,
       required: [true, "Title is required"],
       trim: true,
     },
 
-    // Category/Topic to group progress in the UI drawer (e.g., "React", "Node.js", "HTML/CSS")
     topicCategory: {
       type: String,
       required: [true, "Topic category is required"],
@@ -24,7 +28,7 @@ const progressSchema = new mongoose.Schema(
 
     resourceType: {
       type: String,
-      enum: ["video", "documentation", "article", "project", "other"],
+      enum: ["video", "documentation",  "other"],
       default: "documentation",
     },
 
@@ -45,7 +49,6 @@ const progressSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Updated ONLY by Student
     status: {
       type: String,
       enum: {
@@ -57,12 +60,14 @@ const progressSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Mentor feedback or notes attached to student progress
     mentorNotes: [
       {
         note: String,
         createdAt: { type: Date, default: Date.now },
-        author: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        author: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
       },
     ],
 
@@ -78,10 +83,12 @@ const progressSchema = new mongoose.Schema(
       required: true,
     },
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
+progressSchema.index({ batch: 1, student: 1 });
 progressSchema.index({ student: 1, status: 1 });
 progressSchema.index({ student: 1, topicCategory: 1 });
+progressSchema.index({ releaseId: 1, batch: 1 });
 
 module.exports = mongoose.model("Progress", progressSchema);
