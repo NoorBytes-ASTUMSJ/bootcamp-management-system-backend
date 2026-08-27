@@ -22,6 +22,17 @@ exports.getUserFeed = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// No req.user here — this route sits above the protect middleware, so
+// unauthenticated visitors can hit it. Reuses the existing "public" branch
+// already inside getUserAnnouncements (targetAudience: "public",
+// status: "published"), just called with no userId/role.
+exports.getPublicAnnouncements = async (req, res, next) => {
+  try {
+    const announcements = await announcementService.getUserAnnouncements(null, "public");
+    return successResponse(res, { announcements }, "Public announcements loaded successfully.", 200);
+  } catch (err) { next(err); }
+};
+
 exports.updateAnnouncement = async (req, res, next) => {
   try {
     const updated = await announcementService.updateAnnouncement(req.params.id, req.user.id, req.user.role, req.body);
