@@ -6,7 +6,9 @@ exports.getBatchDashboardStats = async () => {
   const [totalBatches, activeBatches, totalStudents, totalMentors] =
     await Promise.all([
       Batch.countDocuments(),
-      Batch.countDocuments({ status: "ongoing" }),
+      Batch.countDocuments({
+        status: { $in: ["ongoing", "active", "Active", "upcoming"] },
+      }),
       User.countDocuments({ role: "student" }),
       User.countDocuments({ role: "mentor" }),
     ]);
@@ -19,12 +21,24 @@ exports.getBatchDashboardStats = async () => {
   };
 };
 
-// Create a new batch
+// Create a new batch & automatically assign it to users without a batch
 exports.createBatch = async (adminId, batchData) => {
   const batch = await Batch.create({
     ...batchData,
     createdBy: adminId,
   });
+
+  // አዲሱ ባች ክፍት (ongoing ወይም upcoming) ከሆነ እስካሁን ባች ያልነበራቸውን ተጠቃሚዎች በሙሉ ይመድባል
+  if (["ongoing", "upcoming", "active"].includes(batch.status)) {
+    await User.updateMany(
+      {
+        $or: [{ batch: null }, { batch: { $exists: false } }],
+      },
+      {
+        $set: { batch: batch._id },
+      },
+    );
+  }
 
   return batch;
 };
@@ -54,7 +68,7 @@ exports.getAllBatches = async () => {
         studentCount,
         mentorCount,
       };
-    })
+    }),
   );
 
   return batchesWithCounts;
@@ -78,7 +92,7 @@ exports.getBatchById = async (batchId) => {
       role: "student",
     })
       .select(
-        "fullName email phone gender university department year role createdAt"
+        "fullName email phone gender university department year role createdAt",
       )
       .lean(),
 
@@ -87,7 +101,7 @@ exports.getBatchById = async (batchId) => {
       role: "mentor",
     })
       .select(
-        "fullName email phone gender university department year role createdAt"
+        "fullName email phone gender university department year role createdAt",
       )
       .lean(),
   ]);
@@ -103,18 +117,13 @@ exports.getBatchById = async (batchId) => {
 
 // Update batch
 exports.updateBatch = async (batchId, updateData) => {
-  // Never allow createdBy to be changed
   const safeUpdateData = { ...updateData };
   delete safeUpdateData.createdBy;
 
-  const updatedBatch = await Batch.findByIdAndUpdate(
-    batchId,
-    safeUpdateData,
-    {
-      new: true,
-      runValidators: true,
-    }
-  ).populate("createdBy", "fullName email");
+  const updatedBatch = await Batch.findByIdAndUpdate(batchId, safeUpdateData, {
+    new: true,
+    runValidators: true,
+  }).populate("createdBy", "fullName email");
 
   if (!updatedBatch) {
     const error = new Error("Batch not found.");
@@ -122,11 +131,22 @@ exports.updateBatch = async (batchId, updateData) => {
     throw error;
   }
 
+  // ባቹ ወደ active/ongoing ከተቀየረ ባች የሌላቸውን ተጠቃሚዎች አብሮ assign ያደርጋል
+  if (["ongoing", "upcoming", "active"].includes(updatedBatch.status)) {
+    await User.updateMany(
+      {
+        $or: [{ batch: null }, { batch: { $exists: false } }],
+      },
+      {
+        $set: { batch: updatedBatch._id },
+      },
+    );
+  }
+
   return updatedBatch;
 };
 
 // Delete batch
-// Removes the batch reference from all users before deleting the batch
 exports.deleteBatch = async (batchId) => {
   const batch = await Batch.findById(batchId);
 
@@ -137,10 +157,7 @@ exports.deleteBatch = async (batchId) => {
   }
 
   // Remove batch reference from all users assigned to this batch
-  await User.updateMany(
-    { batch: batchId },
-    { $unset: { batch: "" } }
-  );
+  await User.updateMany({ batch: batchId }, { $unset: { batch: "" } });
 
   // Delete the batch
   await Batch.findByIdAndDelete(batchId);

@@ -12,7 +12,12 @@ const { successResponse, errorResponse } = require("../utils/apiResponse");
 exports.getAllUsers = async (req, res, next) => {
   try {
     const users = await userService.getAllUsers(req.query);
-    return successResponse(res, { users }, "Users retrieved successfully.", 200);
+    return successResponse(
+      res,
+      { users },
+      "Users retrieved successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }
@@ -25,7 +30,12 @@ exports.getAllUsers = async (req, res, next) => {
 exports.getOwnProfile = async (req, res, next) => {
   try {
     const user = await userService.getUserById(req.user.id);
-    return successResponse(res, { user }, "Profile retrieved successfully.", 200);
+    return successResponse(
+      res,
+      { user },
+      "Profile retrieved successfully.",
+      200,
+    );
   } catch (error) {
     next(error);
   }
@@ -65,9 +75,17 @@ exports.changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) {
-      return errorResponse(res, "Please provide your current and new password.", 400);
+      return errorResponse(
+        res,
+        "Please provide your current and new password.",
+        400,
+      );
     }
-    const result = await userService.changePassword(req.user.id, currentPassword, newPassword);
+    const result = await userService.changePassword(
+      req.user.id,
+      currentPassword,
+      newPassword,
+    );
     return successResponse(res, result, result.message, 200);
   } catch (error) {
     next(error);
