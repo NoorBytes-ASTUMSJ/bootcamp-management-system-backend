@@ -25,5 +25,9 @@ router.patch(
   authorize("admin", "mentor"),
   attendanceController.updateAttendance,
 );
-
+router.get(
+  "/my-batch",
+  authorize("student"),
+  attendanceController.getBatchAttendanceStats,
+);
 module.exports = router;

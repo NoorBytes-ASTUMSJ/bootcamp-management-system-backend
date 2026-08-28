@@ -10,7 +10,8 @@ const submissionRoutes = require("./routes/submission.routes");
 const assignmentRoutes = require("./routes/assignment.routes");
 
 const progressRoutes = require("./routes/progress.route");
-const announcementRoutes = require("./routes/announcement.route");
+const announcementRoutes = require("./routes/announcement.route")
+const dashboardRoutes = require("./routes/dashboard.routes");
 const errorHandler = require("./middlewares/errorHandler.middleware");
 
 const app = express();
@@ -62,6 +63,7 @@ app.use("/api/submissions", submissionRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/progress", progressRoutes);
 app.use("/api/announcements", announcementRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // 4. Global Error Handling Middleware
 app.use(errorHandler);
