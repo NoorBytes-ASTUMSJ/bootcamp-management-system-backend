@@ -8,6 +8,7 @@ const memberRoutes = require("./routes/member.routes");
 const attendanceRoutes = require("./routes/attendance.route");
 const progressRoutes = require("./routes/progress.route");
 const announcementRoutes = require("./routes/announcement.route")
+const dashboardRoutes = require("./routes/dashboard.routes");
 const errorHandler = require("./middlewares/errorHandler.middleware");
 
 const app = express();
@@ -24,6 +25,7 @@ app.use("/api/members", memberRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/progress" , progressRoutes)
 app.use("/api/announcements", announcementRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 app.use(errorHandler);
 
