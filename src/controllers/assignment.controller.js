@@ -5,7 +5,7 @@ exports.createAssignment = async (req, res, next) => {
   try {
     const data = { ...req.body };
     if (req.file) {
-      data.fileUrl = `/uploads/${req.file.filename}`;
+      data.fileUrl = req.file.path;
       data.fileName = req.file.originalname;
       data.fileType = req.file.mimetype;
     }
@@ -91,7 +91,7 @@ exports.updateAssignment = async (req, res, next) => {
   try {
     const data = { ...req.body };
     if (req.file) {
-      data.fileUrl = `/uploads/${req.file.filename}`;
+      data.fileUrl = req.file.path;
       data.fileName = req.file.originalname;
       data.fileType = req.file.mimetype;
     }
