@@ -127,15 +127,37 @@ exports.getAdminAssignments = async (query = {}) => {
 
   if (batchId) filter.batch = batchId;
 
-  return await Assignment.find(filter)
+  const assignments = await Assignment.find(filter)
     .populate("createdBy", "fullName email role")
     .populate("batch", "name")
     .sort({ createdAt: -1 })
     .lean();
+
+  const assignmentIds = assignments.map((a) => a._id);
+  const submissions = await Submission.find({
+    assignment: { $in: assignmentIds },
+  }).lean();
+
+  return assignments.map((a) => {
+    const relSubs = submissions.filter(
+      (s) => s.assignment && s.assignment.toString() === a._id.toString(),
+    );
+    return {
+      ...a,
+      totalStudents: relSubs.length,
+      submissionsCount: relSubs.filter((s) => s.status !== "not_started")
+        .length,
+    };
+  });
 };
 
 exports.getMentorAssignments = async (mentorUserId) => {
+  console.log("--- RUNNING NEW MENTOR ASSIGNMENT FETCH ---");
   const mentorUser = await User.findById(mentorUserId);
+  const assignedStudents = await Member.find({
+    assignedMentor: mentorUserId,
+  }).select("_id");
+  const studentIds = assignedStudents.map((s) => s._id.toString());
 
   const filter = {
     $or: [{ createdBy: mentorUserId }],
@@ -145,7 +167,7 @@ exports.getMentorAssignments = async (mentorUserId) => {
     filter.$or.push({ scope: "global", batch: mentorUser.batch });
   }
 
-  return await Assignment.find(filter)
+  const assignments = await Assignment.find(filter)
     .populate("batch", "name")
     .populate({
       path: "assignedMembers",
@@ -154,6 +176,30 @@ exports.getMentorAssignments = async (mentorUserId) => {
     .populate("createdBy", "fullName email role")
     .sort({ createdAt: -1 })
     .lean();
+
+  const assignmentIds = assignments.map((a) => a._id);
+  const submissions = await Submission.find({
+    assignment: { $in: assignmentIds },
+  }).lean();
+
+  return assignments.map((a) => {
+    let relSubs = submissions.filter(
+      (s) => s.assignment && s.assignment.toString() === a._id.toString(),
+    );
+
+    if (a.scope !== "global") {
+      relSubs = relSubs.filter(
+        (s) => s.member && studentIds.includes(s.member.toString()),
+      );
+    }
+
+    return {
+      ...a,
+      totalStudents: relSubs.length,
+      submissionsCount: relSubs.filter((s) => s.status !== "not_started")
+        .length,
+    };
+  });
 };
 
 exports.getStudentAssignments = async (studentUserId) => {

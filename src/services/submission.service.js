@@ -1,6 +1,7 @@
 const Submission = require("../models/Submission.model");
 const Assignment = require("../models/Assignment.model");
 const Member = require("../models/Member.model");
+const User = require("../models/User.model");
 
 exports.submitAssignment = async (submissionId, studentMemberId, data) => {
   const submission = await Submission.findOne({
@@ -51,15 +52,20 @@ exports.gradeSubmission = async (submissionId, mentorUserId, data) => {
 exports.getAdminSubmissions = async (query = {}) => {
   const { status, assignmentId } = query;
 
-  const globalAssignments = await Assignment.find()
-    .select("title deadline maxScore batch")
+  const allAssignments = await Assignment.find()
+    .select("title deadline maxScore batch scope createdBy")
     .populate("batch", "name")
     .lean();
+
+  const globalAssignments = allAssignments.filter((a) => a.scope === "global");
 
   const globalAssignmentIds = globalAssignments.map((a) => a._id);
 
   const filter = {
-    assignment: assignmentId ? assignmentId : { $in: globalAssignmentIds },
+    assignment:
+      assignmentId && assignmentId !== "ALL"
+        ? assignmentId
+        : { $in: globalAssignmentIds },
     status: { $ne: "not_started" },
   };
 
@@ -130,7 +136,10 @@ exports.getAdminSubmissions = async (query = {}) => {
   });
 
   const baseMetricsFilter = {
-    assignment: assignmentId ? assignmentId : { $in: globalAssignmentIds },
+    assignment:
+      assignmentId && assignmentId !== "ALL"
+        ? assignmentId
+        : { $in: globalAssignmentIds },
     status: { $ne: "not_started" },
   };
 
@@ -170,7 +179,7 @@ exports.getMentorSubmissions = async (mentorUserId) => {
     member: { $in: studentMemberIds },
     status: { $ne: "not_started" },
   })
-    .populate("assignment", "title deadline maxScore")
+    .populate("assignment", "title deadline maxScore fileUrl fileName")
     .populate({
       path: "member",
       populate: { path: "user", select: "fullName email" },
@@ -197,30 +206,41 @@ exports.getSubmissionsByAssignment = async (assignmentId) => {
 
 exports.getStudentSubmissions = async (userId) => {
   const student = await Member.findOne({ user: userId });
-  if (!student) {
-    throw new Error("Student record not found.");
-  }
+  if (!student) throw new Error("Student record not found.");
 
-  const studentMemberId = student._id;
-
-  const assignmentQuery = {
-    $or: [{ scope: "global" }, { batch: { $exists: false } }, { batch: null }],
-  };
-
-  if (student.batch) {
-    assignmentQuery.$or.push({ batch: student.batch });
-  }
-
-  const applicableAssignments = await Assignment.find(assignmentQuery)
-    .select("_id")
+  const allAssignments = await Assignment.find()
+    .select(
+      "title description deadline maxScore fileUrl fileName batch scope assignedMembers",
+    )
+    .populate("batch", "name")
     .lean();
+
+  const applicableAssignments = allAssignments.filter((a) => {
+    if (a.scope === "global" && !a.batch) return true;
+    if (
+      a.scope === "global" &&
+      a.batch &&
+      student.batch &&
+      a.batch._id.toString() === student.batch.toString()
+    )
+      return true;
+
+    if (a.assignedMembers && Array.isArray(a.assignedMembers)) {
+      const isAssigned = a.assignedMembers.some(
+        (id) => id.toString() === student._id.toString(),
+      );
+      if (isAssigned) return true;
+    }
+    return false;
+  });
+
   const applicableAssignmentIds = applicableAssignments.map((a) =>
     a._id.toString(),
   );
 
-  const existingSubmissions = await Submission.find({ member: studentMemberId })
-    .select("assignment")
-    .lean();
+  const existingSubmissions = await Submission.find({
+    member: student._id,
+  }).lean();
   const existingAssignmentIds = existingSubmissions.map((s) =>
     s.assignment?.toString(),
   );
@@ -232,23 +252,22 @@ exports.getStudentSubmissions = async (userId) => {
   if (missingAssignmentIds.length > 0) {
     const newSubmissions = missingAssignmentIds.map((id) => ({
       assignment: id,
-      member: studentMemberId,
+      member: student._id,
       status: "not_started",
     }));
-
-    try {
-      await Submission.insertMany(newSubmissions);
-    } catch (err) {}
+    await Submission.insertMany(newSubmissions);
   }
 
-  const finalSubmissions = await Submission.find({
-    member: studentMemberId,
-    assignment: { $in: applicableAssignmentIds },
-  })
+  // FIX: Added 'scope' and nested populate for 'createdBy' so the frontend gets the mentor's name
+  const finalSubmissions = await Submission.find({ member: student._id })
     .populate({
       path: "assignment",
-      select: "title description deadline maxScore fileUrl fileName batch",
-      populate: { path: "batch", select: "name" },
+      select:
+        "title description deadline maxScore fileUrl fileName batch scope createdBy",
+      populate: [
+        { path: "batch", select: "name" },
+        { path: "createdBy", select: "fullName role" },
+      ],
     })
     .sort({ "assignment.deadline": 1 })
     .lean();
