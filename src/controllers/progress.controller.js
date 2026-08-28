@@ -32,10 +32,15 @@ exports.getProgressDashboard = async (req, res, next) => {
     const filterQuery = { ...req.query };
 
     if (req.user.role === "mentor") {
-  filterQuery.mentorId = req.user.id;
-} else if (req.user.role === "admin") {
-  filterQuery.scope = "global";
+      // Default (unchanged): scope to this mentor's own assigned students.
+      // Pass scopeToAssigned=false to see every student instead.
+      const scopeToAssigned = req.query.scopeToAssigned !== "false";
 
+      if (scopeToAssigned) {
+        filterQuery.mentorId = req.user.id;
+      }
+    } else if (req.user.role === "admin") {
+      filterQuery.scope = "global";
     }
 
     const data = await progressService.getProgressDashboard(filterQuery);
@@ -48,7 +53,8 @@ exports.getProgressDashboard = async (req, res, next) => {
 // Get All Raw Progress Items (Admin / Mentor) - Required for dynamic table matrix mapping
 exports.getAllProgressItems = async (req, res, next) => {
   try {
-    const { batchId } = req.query;
+    const { batchId, scopeToAssigned } = req.query;
+    const isScoped = scopeToAssigned !== "false";
 
     let studentFilter = {};
 
@@ -59,7 +65,7 @@ exports.getAllProgressItems = async (req, res, next) => {
       studentFilter = { student: { $in: members.map((m) => m._id) } };
     }
 
-    if (req.user.role === "mentor") {
+    if (req.user.role === "mentor" && isScoped) {
       const myStudents = await Member.find({ assignedMentor: req.user.id }).select("_id");
       const myStudentIds = myStudents.map((m) => String(m._id));
 
@@ -83,15 +89,18 @@ exports.getAllProgressItems = async (req, res, next) => {
       .lean();
 
     let filtered = records.filter((r) => r.task);
+
     if (req.user.role === "admin") {
-  filtered = filtered.filter((r) => r.task.scope === "global");
-} else if (req.user.role === "mentor") {
-  filtered = filtered.filter(
-    (r) =>
-      r.task.scope === "global" ||
-      String(r.task.releasedBy?._id || r.task.releasedBy) === String(req.user.id)
-  );
-}
+      filtered = filtered.filter((r) => r.task.scope === "global");
+    } else if (req.user.role === "mentor" && isScoped) {
+      filtered = filtered.filter(
+        (r) =>
+          r.task.scope === "global" ||
+          String(r.task.releasedBy?._id || r.task.releasedBy) === String(req.user.id)
+      );
+    }
+    // When a mentor passes scopeToAssigned=false, no releasedBy filtering
+    // happens — every item for the batch comes back as-is.
 
     const items = filtered.map((r) => ({
       id: r.task._id,
