@@ -6,122 +6,353 @@ const Submission = require("../models/Submission.model");
 const Attendance = require("../models/Attendance.model");
 const Announcement = require("../models/Announcement.model");
 
-/**
- * Aggregates high-level metrics and system overviews for the Admin dashboard.
- */
+const formatActivityTime = (date) => {
+  const d = new Date(date);
+  const isToday = new Date().toDateString() === d.toDateString();
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return isToday
+    ? `Today, ${time}`
+    : `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
+};
+
 async function getAdminOverviewData(adminUser) {
-  const [totalStudents, totalMentors, totalBatches, activeBatchesList] = await Promise.all([
-    Member.countDocuments({ status: "active" }),
-    User.countDocuments({ role: "mentor" }),
-    Batch.countDocuments(),
-    Batch.find({ status: "ongoing" }).lean(),
-  ]);
+  const allUsers = await User.find().lean();
+  const allMembers = await Member.find().lean();
+  const allBatchesList = await Batch.find().sort({ createdAt: -1 }).lean();
+  const allAssignments = await Assignment.find()
+    .select("_id batch deadline maxScore")
+    .lean();
+  const allSubmissions = await Submission.find().populate("assignment").lean();
 
-  // Calculate global attendance percentage across active records
-  const attendanceRecords = await Attendance.find({}).lean();
-  let attendanceRate = 92; // default fallback
-  if (attendanceRecords.length > 0) {
-    const presentCount = attendanceRecords.filter((r) => r.status === "present" || r.status === "late").length;
-    attendanceRate = Math.round((presentCount / attendanceRecords.length) * 100);
-  }
-
-  // Calculate pending submissions count globally
-  const pendingSubmissionsCount = await Submission.countDocuments({ status: "submitted" });
-
-  // Format active batches with breakdown stats and IDs for filtering
-  const availableBatches = await Promise.all(
-    activeBatchesList.map(async (batch) => {
-      const studentCount = await Member.countDocuments({ batch: batch._id });
-      const batchAttendance = attendanceRecords.filter((r) => r.batch && r.batch.toString() === batch._id.toString());
-      const presentBatchCount = batchAttendance.filter((r) => r.status === "present").length;
-      const lateBatchCount = batchAttendance.filter((r) => r.status === "late").length;
-      const absentBatchCount = batchAttendance.filter((r) => r.status === "absent").length;
-      
-      const batchAttendanceAvg = batchAttendance.length > 0 
-        ? Math.round(((presentBatchCount + lateBatchCount) / batchAttendance.length) * 100) 
-        : 0;
-
-      const totalAssignments = await Assignment.countDocuments({ batch: batch._id });
-      const activeAssignments = await Assignment.countDocuments({ batch: batch._id, deadline: { $gt: new Date() } });
-
-      return {
-        _id: batch._id,
-        id: batch._id,
-        name: batch.name || batch.title,
-        studentCount,
-        students: studentCount,
-        mentors: 4, 
-        attendanceAvg: `${batchAttendanceAvg}%`,
-        progress: batch.progress || 65, // Dynamic or fallback percentage
-        status: batch.status || "Active",
-        attendanceBreakdown: {
-          present: presentBatchCount,
-          late: lateBatchCount,
-          absent: absentBatchCount,
-        },
-        assignmentStats: {
-          total: totalAssignments,
-          active: activeAssignments,
-          pendingReview: pendingSubmissionsCount,
-          pastDue: await Assignment.countDocuments({ batch: batch._id, deadline: { $lt: new Date() } }),
-        },
-      };
-    })
+  const attendanceRecords = await Attendance.find({})
+    .populate("recordedBy", "role")
+    .lean();
+  const adminAttendanceRecords = attendanceRecords.filter(
+    (r) => r.recordedBy && String(r.recordedBy.role).toLowerCase() === "admin",
   );
 
-  // Recent system activities & announcements
-  const recentAnnouncements = await Announcement.find().sort({ createdAt: -1 }).limit(4).lean();
-  const recentSubmissions = await Submission.find({ status: "submitted" }).populate({
-    path: "member",
-    populate: { path: "user", select: "fullName firstName" }
-  }).sort({ updatedAt: -1 }).limit(3).lean();
+  const totalStudents = allUsers.filter(
+    (u) => String(u.role || "").toLowerCase() === "student",
+  ).length;
+  const totalMentors = allUsers.filter(
+    (u) => String(u.role || "").toLowerCase() === "mentor",
+  ).length;
+  const totalBatches = allBatchesList.length;
 
-  const recentActivities = [
+  const availableBatches = allBatchesList.map((batch) => {
+    const batchIdStr = batch._id.toString();
+
+    let studentIds = new Set();
+    let mentorIds = new Set();
+    let batchStudentsMap = new Map();
+
+    allUsers.forEach((u) => {
+      const uBatch = u.batch || u.batchId;
+      if (uBatch && uBatch.toString() === batchIdStr) {
+        const role = String(u.role || "student").toLowerCase();
+        if (role === "student") {
+          studentIds.add(u._id.toString());
+          const mDoc = allMembers.find(
+            (m) => m.user && m.user.toString() === u._id.toString(),
+          );
+          batchStudentsMap.set(u._id.toString(), {
+            userId: u._id.toString(),
+            memberId: mDoc ? mDoc._id.toString() : null,
+            name:
+              u.fullName ||
+              (u.firstName
+                ? `${u.firstName} ${u.lastName || ""}`.trim()
+                : null) ||
+              u.name ||
+              "Student",
+          });
+        }
+        if (role === "mentor") mentorIds.add(u._id.toString());
+      }
+    });
+
+    allMembers.forEach((m) => {
+      const mBatch = m.batch || m.batchId;
+      if (mBatch && mBatch.toString() === batchIdStr) {
+        if (m.user) {
+          const uId = m.user.toString();
+          const uDoc = allUsers.find((u) => u._id.toString() === uId);
+          const role = uDoc
+            ? String(uDoc.role || "student").toLowerCase()
+            : "student";
+
+          if (role === "student") {
+            studentIds.add(uId);
+            if (!batchStudentsMap.has(uId)) {
+              batchStudentsMap.set(uId, {
+                userId: uId,
+                memberId: m._id.toString(),
+                name: uDoc
+                  ? uDoc.fullName ||
+                    (uDoc.firstName
+                      ? `${uDoc.firstName} ${uDoc.lastName || ""}`.trim()
+                      : null) ||
+                    uDoc.name ||
+                    "Student"
+                  : "Student",
+              });
+            }
+          }
+          if (role === "mentor") mentorIds.add(uId);
+        }
+        if (m.assignedMentor) {
+          mentorIds.add(m.assignedMentor.toString());
+        }
+      }
+    });
+
+    const batchStudents = Array.from(batchStudentsMap.values());
+
+    const batchAssignments = allAssignments.filter((a) => {
+      const b = a.batch || a.batchId;
+      return b && b.toString() === batchIdStr;
+    });
+    const assignmentIds = batchAssignments.map((a) => a._id.toString());
+    const assignmentMaxScores = {};
+    batchAssignments.forEach((a) => {
+      assignmentMaxScores[a._id.toString()] = a.maxScore || 100;
+    });
+
+    const activeAssignments = batchAssignments.filter(
+      (a) => new Date(a.deadline) > new Date(),
+    ).length;
+    const pastDueAssignments = batchAssignments.filter(
+      (a) => new Date(a.deadline) < new Date(),
+    ).length;
+
+    const batchSubmissions = allSubmissions.filter((s) => {
+      const aId = (s.assignment?._id || s.assignment)?.toString();
+      return aId && assignmentIds.includes(aId);
+    });
+    const pendingSubmissionsCount = batchSubmissions.filter(
+      (s) => s.status === "submitted",
+    ).length;
+
+    const batchAttendance = adminAttendanceRecords.filter((r) => {
+      const b = r.batch || r.batchId;
+      return b && b.toString() === batchIdStr;
+    });
+    const totalAtt = batchAttendance.length || 1;
+
+    const presentBatchCount = batchAttendance.filter(
+      (r) => r.status === "present",
+    ).length;
+    const lateBatchCount = batchAttendance.filter(
+      (r) => r.status === "late",
+    ).length;
+    const absentBatchCount = batchAttendance.filter(
+      (r) => r.status === "absent",
+    ).length;
+
+    const presentPct = Math.round((presentBatchCount / totalAtt) * 100);
+    const latePct = Math.round((lateBatchCount / totalAtt) * 100);
+    const absentPct = Math.round((absentBatchCount / totalAtt) * 100);
+
+    const batchAttendanceAvg =
+      batchAttendance.length > 0
+        ? Math.round(
+            ((presentBatchCount + lateBatchCount) / batchAttendance.length) *
+              100,
+          )
+        : 100;
+
+    const batchAttendanceAll = attendanceRecords.filter((r) => {
+      const b = r.batch || r.batchId;
+      return b && b.toString() === batchIdStr;
+    });
+
+    const attendanceLeaderboard = batchStudents
+      .map((student) => {
+        const mAtt = batchAttendanceAll.filter((a) => {
+          const aMem = a.member || a.memberId;
+          const aUser = a.user || a.userId;
+          return (
+            (aMem &&
+              student.memberId &&
+              aMem.toString() === student.memberId) ||
+            (aUser && student.userId && aUser.toString() === student.userId)
+          );
+        });
+
+        let score = 0;
+        let gradeable = 0;
+        mAtt.forEach((a) => {
+          if (a.status === "present") score += 1;
+          else if (a.status === "late") score += 0.5;
+          else if (a.status === "excused") score += 0.25;
+          if (["present", "late", "absent", "excused"].includes(a.status))
+            gradeable++;
+        });
+        const pct = gradeable > 0 ? Math.round((score / gradeable) * 100) : 100;
+        return {
+          id: student.userId || student.memberId,
+          name: student.name,
+          value: pct,
+        };
+      })
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+
+    const gradesLeaderboard = batchStudents
+      .map((student) => {
+        const mSubs = batchSubmissions.filter((s) => {
+          const sMem = s.member || s.memberId;
+          const sUser = s.user || s.userId;
+          const isMatch =
+            (sMem &&
+              student.memberId &&
+              sMem.toString() === student.memberId) ||
+            (sUser && student.userId && sUser.toString() === student.userId);
+          return (
+            isMatch &&
+            ["graded", "reviewed"].includes(s.status) &&
+            s.score != null
+          );
+        });
+
+        let totalPoints = 0;
+        mSubs.forEach((s) => {
+          if (s.score !== undefined && s.score !== null) {
+            totalPoints += Number(s.score);
+          }
+        });
+        return {
+          id: student.userId || student.memberId,
+          name: student.name,
+          value: totalPoints,
+          count: mSubs.length,
+        };
+      })
+      .filter((x) => x.count > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+
+    let progressStr = "Active";
+    if (batch.startDate && batch.endDate) {
+      const now = new Date();
+      const start = new Date(batch.startDate);
+      const end = new Date(batch.endDate);
+
+      if (now < start) progressStr = "Starts Soon";
+      else if (now > end) progressStr = "Completed";
+      else
+        progressStr = `${Math.ceil((end - now) / (1000 * 60 * 60 * 24))} Days Remaining`;
+    } else if (batch.status) {
+      progressStr =
+        batch.status.charAt(0).toUpperCase() + batch.status.slice(1);
+    }
+
+    return {
+      id: batchIdStr,
+      name: batch.name,
+      students: studentIds.size,
+      mentors: mentorIds.size,
+      attendanceAvg: `${batchAttendanceAvg}%`,
+      progress: progressStr,
+      attendanceBreakdown: {
+        present: presentPct,
+        late: latePct,
+        absent: absentPct,
+      },
+      assignmentStats: {
+        total: batchAssignments.length,
+        active: activeAssignments,
+        pendingReview: pendingSubmissionsCount,
+        pastDue: pastDueAssignments,
+      },
+      leaderboard: {
+        attendance: attendanceLeaderboard,
+        grades: gradesLeaderboard,
+      },
+    };
+  });
+
+  const activeBatches = availableBatches.filter(
+    (b) =>
+      b.progress.includes("Remaining") ||
+      b.progress === "Ongoing" ||
+      b.progress === "Active",
+  );
+  let globalAttendanceRate = 100;
+
+  if (activeBatches.length > 0) {
+    const sum = activeBatches.reduce(
+      (acc, curr) => acc + parseInt(curr.attendanceAvg),
+      0,
+    );
+    globalAttendanceRate = Math.round(sum / activeBatches.length);
+  } else if (availableBatches.length > 0) {
+    const sum = availableBatches.reduce(
+      (acc, curr) => acc + parseInt(curr.attendanceAvg),
+      0,
+    );
+    globalAttendanceRate = Math.round(sum / availableBatches.length);
+  }
+
+  const recentAnnouncements = await Announcement.find()
+    .sort({ createdAt: -1 })
+    .limit(3)
+    .lean();
+  const recentSubmissions = await Submission.find({ status: "submitted" })
+    .populate({
+      path: "member",
+      populate: { path: "user", select: "fullName" },
+    })
+    .sort({ updatedAt: -1 })
+    .limit(3)
+    .lean();
+
+  const rawActivities = [
     ...recentSubmissions.map((sub) => ({
-      id: sub._id,
       type: "submission",
-      title: `Submission from ${sub.member?.user?.firstName || sub.member?.user?.fullName || "Student"}`,
-      subtitle: "Assignment Review Pending",
-      time: new Date(sub.updatedAt || Date.now()).toLocaleDateString(),
+      title: `Submission from ${sub.member?.user?.fullName || "Student"}`,
+      subtitle: "Pending Review",
+      time: formatActivityTime(sub.updatedAt || Date.now()),
+      rawDate: new Date(sub.updatedAt || Date.now()),
     })),
     ...recentAnnouncements.map((ann) => ({
-      id: ann._id,
       type: "announcement",
       title: ann.title,
-      subtitle: ann.content || ann.preview,
-      time: new Date(ann.createdAt || Date.now()).toLocaleDateString(),
+      subtitle: "New Announcement",
+      time: formatActivityTime(ann.createdAt || Date.now()),
+      rawDate: new Date(ann.createdAt || Date.now()),
     })),
   ];
 
+  const recentActivities = rawActivities
+    .sort((a, b) => b.rawDate - a.rawDate)
+    .slice(0, 5)
+    .map(({ rawDate, ...rest }) => rest);
+
   return {
-    admin: {
-      firstName: adminUser?.firstName || adminUser?.name || "Admin",
-    },
-    overview: {
-      totalStudents,
-      totalMentors,
-      totalBatches,
-      activeBatches: activeBatchesList.length,
-      averageAttendance: `${attendanceRate}%`,
-      pendingSubmissions: pendingSubmissionsCount,
+    metrics: {
+      students: totalStudents,
+      mentors: totalMentors,
+      batches: totalBatches,
+      attendance: `${globalAttendanceRate}%`,
     },
     batches: availableBatches,
-    announcements: recentAnnouncements,
-    recentActivity: recentActivities,
+    recentActivities,
   };
 }
 
-/**
- * Aggregates data specific to a Mentor's assigned students and cohorts.
- */
 async function getMentorOverviewData(userId) {
-  const assignedStudents = await Member.find({ assignedMentor: userId }).populate("user", "fullName email").lean();
+  const assignedStudents = await Member.find({ assignedMentor: userId })
+    .populate("user", "fullName email")
+    .lean();
   const studentIds = assignedStudents.map((s) => s._id);
 
   const pendingSubmissions = await Submission.find({
     member: { $in: studentIds },
     status: "submitted",
-  }).populate("assignment", "title maxScore").lean();
+  })
+    .populate("assignment", "title maxScore")
+    .lean();
 
   return {
     assignedStudentsCount: assignedStudents.length,
@@ -131,18 +362,15 @@ async function getMentorOverviewData(userId) {
   };
 }
 
-// Submission.status enum: not_started | in_progress | submitted | graded | needs_resubmission
 const COMPLETED_SUBMISSION_STATUSES = new Set(["submitted", "graded"]);
 
-// Maps a submission's status (plus its score, when graded) to a display
-// percentage for the progress summary. Not an exact science for the
-// in-between states — it's a reasonable approximation until there's a
-// more precise notion of "how done is this" than a 5-value enum.
 function statusToPercentage(sub, maxScore) {
   if (!sub) return 0;
   switch (sub.status) {
     case "graded":
-      return typeof sub.score === "number" ? Math.round((sub.score / maxScore) * 100) : 100;
+      return typeof sub.score === "number"
+        ? Math.round((sub.score / maxScore) * 100)
+        : 100;
     case "submitted":
       return 90;
     case "needs_resubmission":
@@ -170,20 +398,22 @@ function statusToLabel(status) {
   }
 }
 
-/**
- * Aggregates data specific to an active Student member.
- */
 async function getStudentOverviewData(userId) {
   let member = await Member.findOne({ user: userId }).populate("batch").lean();
-  
-  // Gracefully fallback if the student member profile isn't seeded yet
+
   if (!member) {
     const fallbackUser = await User.findById(userId).lean();
     return {
-      student: { firstName: fallbackUser?.firstName || fallbackUser?.fullName || "Student" },
+      student: {
+        firstName:
+          fallbackUser?.firstName || fallbackUser?.fullName || "Student",
+      },
       overview: { attendance: 0, progress: 0, assignments: 0, averageGrade: 0 },
       progressSummary: [],
-      announcements: await Announcement.find().sort({ createdAt: -1 }).limit(3).lean(),
+      announcements: await Announcement.find()
+        .sort({ createdAt: -1 })
+        .limit(3)
+        .lean(),
       upcomingDeadlines: [],
       recentFeedback: [],
       memberInfo: null,
@@ -196,41 +426,47 @@ async function getStudentOverviewData(userId) {
   }).lean();
 
   const submissions = await Submission.find({ member: member._id }).lean();
-  const attendanceRecords = await Attendance.find({ member: member._id }).lean();
-  const announcements = await Announcement.find().sort({ createdAt: -1 }).limit(3).lean();
+  const attendanceRecords = await Attendance.find({
+    member: member._id,
+  }).lean();
+  const announcements = await Announcement.find()
+    .sort({ createdAt: -1 })
+    .limit(3)
+    .lean();
   const userDoc = await User.findById(userId).lean();
 
-  // --- Attendance: present + late counted at half weight, matching the
-  // convention already used for the admin overview's global rate.
-  const presentCount = attendanceRecords.filter((r) => r.status === "present").length;
+  const presentCount = attendanceRecords.filter(
+    (r) => r.status === "present",
+  ).length;
   const lateCount = attendanceRecords.filter((r) => r.status === "late").length;
   const attendancePct =
     attendanceRecords.length > 0
-      ? Math.round(((presentCount + lateCount * 0.5) / attendanceRecords.length) * 100)
+      ? Math.round(
+          ((presentCount + lateCount * 0.5) / attendanceRecords.length) * 100,
+        )
       : 0;
 
-  // Submission has a unique (assignment, member) index, so a submission
-  // document can exist while still being "not_started" — its mere
-  // existence doesn't mean the student has actually submitted anything.
-  // Every check below goes through the real `status` field instead.
-  const submissionByAssignmentId = new Map(submissions.map((s) => [String(s.assignment), s]));
-  const assignmentMaxScoreById = new Map(assignments.map((a) => [String(a._id), a.maxScore || 100]));
+  const submissionByAssignmentId = new Map(
+    submissions.map((s) => [String(s.assignment), s]),
+  );
+  const assignmentMaxScoreById = new Map(
+    assignments.map((a) => [String(a._id), a.maxScore || 100]),
+  );
 
   const pendingAssignments = assignments.filter((a) => {
     const sub = submissionByAssignmentId.get(String(a._id));
     return !sub || !COMPLETED_SUBMISSION_STATUSES.has(sub.status);
   });
 
-  // --- Progress: % of assignments actually submitted or graded.
-  // `member.progress` is never set anywhere in this codebase, so it was
-  // silently always 0 — this replaces it with a real, derivable number.
   const progressPct =
     assignments.length > 0
-      ? Math.round(((assignments.length - pendingAssignments.length) / assignments.length) * 100)
+      ? Math.round(
+          ((assignments.length - pendingAssignments.length) /
+            assignments.length) *
+            100,
+        )
       : 0;
 
-  // --- Average grade: percentage per *graded* submission (score / that
-  // assignment's own maxScore), averaged. Was hardcoded to 0 before.
   const gradedPercentages = submissions
     .filter((s) => s.status === "graded" && typeof s.score === "number")
     .map((s) => {
@@ -239,13 +475,12 @@ async function getStudentOverviewData(userId) {
     });
   const averageGrade =
     gradedPercentages.length > 0
-      ? Math.round(gradedPercentages.reduce((sum, v) => sum + v, 0) / gradedPercentages.length)
+      ? Math.round(
+          gradedPercentages.reduce((sum, v) => sum + v, 0) /
+            gradedPercentages.length,
+        )
       : 0;
 
-  // --- Progress summary. Assignment has no `topic` field in the current
-  // schema, so this is one row per assignment (title as the label)
-  // rather than grouped by curriculum topic. If you add a `topic` field
-  // to Assignment.model.js later, group by that here instead.
   const progressSummary = assignments
     .slice()
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
@@ -261,11 +496,13 @@ async function getStudentOverviewData(userId) {
     });
 
   return {
-    student: { firstName: userDoc?.firstName || userDoc?.fullName || "Student" },
+    student: {
+      firstName: userDoc?.firstName || userDoc?.fullName || "Student",
+    },
     overview: {
       attendance: attendancePct,
       progress: progressPct,
-      assignments: pendingAssignments.length, // "pending", matching the card's own subtitle
+      assignments: pendingAssignments.length,
       averageGrade,
     },
     progressSummary,
@@ -300,6 +537,7 @@ async function getStudentOverviewData(userId) {
     batch: member.batch,
   };
 }
+
 module.exports = {
   getAdminOverviewData,
   getMentorOverviewData,
