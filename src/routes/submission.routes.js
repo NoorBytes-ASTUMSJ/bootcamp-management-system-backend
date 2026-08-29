@@ -8,13 +8,13 @@ router.use(protect);
 // --- 1. PLACE STATIC/NAMED ROUTES FIRST ---
 router.get(
   "/my-batch-grades",
-  authorize("student"),
+  authorize("student", "mentor", "admin"),
   submissionController.getBatchGradeStats,
 );
 
 router.get(
   "/me",
-  authorize("student"),
+  authorize("student",),
   submissionController.getStudentSubmissions,
 );
 
