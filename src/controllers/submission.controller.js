@@ -109,8 +109,14 @@ exports.getStudentSubmissions = async (req, res, next) => {
 };
 exports.getBatchGradeStats = async (req, res, next) => {
   try {
-    const studentUserId = req.user.id;
-    const data = await submissionService.getBatchGradeStats(studentUserId);
+    const { id: userId, role } = req.user;
+    const { batchId } = req.query;
+
+    const data = await submissionService.getBatchGradeStats({
+      userId,
+      role,
+      batchId,
+    });
 
     return successResponse(
       res,

@@ -274,25 +274,65 @@ exports.getStudentSubmissions = async (userId) => {
 
   return finalSubmissions.filter((sub) => sub.assignment);
 };
-exports.getBatchGradeStats = async (studentUserId) => {
-  const studentMember = await Member.findOne({ user: studentUserId }).populate({
-    path: "user",
-    select: "batch",
-  });
 
-  if (!studentMember) {
-    const error = new Error("Student membership record not found.");
-    error.statusCode = 404;
+exports.getBatchGradeStats = async ({ userId, role, batchId }) => {
+  let resolvedBatchId = batchId;
+
+  if (role === "student") {
+    const studentMember = await Member.findOne({ user: userId }).populate({
+      path: "user",
+      select: "batch",
+    });
+
+    if (!studentMember) {
+      const error = new Error("Student membership record not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    resolvedBatchId = studentMember.user?.batch;
+  } else if (role === "mentor") {
+    if (!batchId) {
+      const error = new Error("batchId is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const batchUserIds = await User.find({ batch: batchId }).distinct("_id");
+    const hasAssignedStudentInBatch = await Member.exists({
+      assignedMentor: userId,
+      user: { $in: batchUserIds },
+    });
+
+    if (!hasAssignedStudentInBatch) {
+      const error = new Error("You are not assigned to this batch.");
+      error.statusCode = 403;
+      throw error;
+    }
+  } else if (role === "admin") {
+    if (!batchId) {
+      const error = new Error("batchId is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+  } else {
+    const error = new Error("Not authorized to view batch grade statistics.");
+    error.statusCode = 403;
     throw error;
   }
 
-  const batchId = studentMember.user?.batch;
-
-  if (!batchId) {
+  if (!resolvedBatchId) {
     return [];
   }
 
-  const usersInBatch = await User.find({ batch: batchId, role: "student" }).select("_id");
+  const totalAssignmentsCount = await Assignment.countDocuments({
+    batch: resolvedBatchId,
+  });
+
+  const usersInBatch = await User.find({
+    batch: resolvedBatchId,
+    role: "student",
+  }).select("_id");
   const userIds = usersInBatch.map((u) => u._id);
 
   const batchMembers = await Member.find({ user: { $in: userIds } }).select("_id");
@@ -326,11 +366,16 @@ exports.getBatchGradeStats = async (studentUserId) => {
   return memberIds.map((memberId) => {
     const key = String(memberId);
     const stats = grouped[key];
+    const totalPct = stats ? stats.total : 0;
 
     return {
       memberId: key,
-      percentage: stats ? Math.round(stats.total / stats.count) : 0,
+      percentage:
+        totalAssignmentsCount > 0
+          ? Math.round(totalPct / totalAssignmentsCount)
+          : 0,
       gradedCount: stats ? stats.count : 0,
+      totalAssignments: totalAssignmentsCount,
     };
   });
 };
