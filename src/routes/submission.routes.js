@@ -5,13 +5,12 @@ const { protect, authorize } = require("../middlewares/auth.middleware");
 
 router.use(protect);
 
-router.patch(
-  "/:id/submit",
+// --- 1. PLACE STATIC/NAMED ROUTES FIRST ---
+router.get(
+  "/my-batch-grades",
   authorize("student"),
-  submissionController.submitWork,
+  submissionController.getBatchGradeStats,
 );
-
-router.patch("/:id/grade", authorize("mentor"), submissionController.gradeWork);
 
 router.get(
   "/me",
@@ -36,5 +35,14 @@ router.get(
   authorize("admin", "mentor"),
   submissionController.getAssignmentSubmissions,
 );
+
+// --- 2. PLACE DYNAMIC /:id ROUTES LAST ---
+router.patch(
+  "/:id/submit",
+  authorize("student"),
+  submissionController.submitWork,
+);
+
+router.patch("/:id/grade", authorize("mentor"), submissionController.gradeWork);
 
 module.exports = router;

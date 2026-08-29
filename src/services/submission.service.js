@@ -274,3 +274,63 @@ exports.getStudentSubmissions = async (userId) => {
 
   return finalSubmissions.filter((sub) => sub.assignment);
 };
+exports.getBatchGradeStats = async (studentUserId) => {
+  const studentMember = await Member.findOne({ user: studentUserId }).populate({
+    path: "user",
+    select: "batch",
+  });
+
+  if (!studentMember) {
+    const error = new Error("Student membership record not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const batchId = studentMember.user?.batch;
+
+  if (!batchId) {
+    return [];
+  }
+
+  const usersInBatch = await User.find({ batch: batchId, role: "student" }).select("_id");
+  const userIds = usersInBatch.map((u) => u._id);
+
+  const batchMembers = await Member.find({ user: { $in: userIds } }).select("_id");
+  const memberIds = batchMembers.map((m) => m._id);
+
+  const submissions = await Submission.find({
+    member: { $in: memberIds },
+    status: "graded",
+    score: { $ne: null },
+  })
+    .populate("assignment", "maxScore")
+    .lean();
+
+  const grouped = {};
+
+  submissions.forEach((sub) => {
+    if (typeof sub.score !== "number") return;
+
+    const memberId = String(sub.member);
+    const maxScore = sub.assignment?.maxScore || 100;
+    const pct = (sub.score / maxScore) * 100;
+
+    if (!grouped[memberId]) {
+      grouped[memberId] = { total: 0, count: 0 };
+    }
+
+    grouped[memberId].total += pct;
+    grouped[memberId].count += 1;
+  });
+
+  return memberIds.map((memberId) => {
+    const key = String(memberId);
+    const stats = grouped[key];
+
+    return {
+      memberId: key,
+      percentage: stats ? Math.round(stats.total / stats.count) : 0,
+      gradedCount: stats ? stats.count : 0,
+    };
+  });
+};

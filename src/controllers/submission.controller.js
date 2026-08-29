@@ -107,3 +107,18 @@ exports.getStudentSubmissions = async (req, res, next) => {
     next(error);
   }
 };
+exports.getBatchGradeStats = async (req, res, next) => {
+  try {
+    const studentUserId = req.user.id;
+    const data = await submissionService.getBatchGradeStats(studentUserId);
+
+    return successResponse(
+      res,
+      { grades: data },
+      "Batch grade statistics loaded.",
+      200,
+    );
+  } catch (error) {
+    next(error);
+  }
+};
