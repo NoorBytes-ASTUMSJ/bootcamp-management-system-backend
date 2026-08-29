@@ -131,6 +131,45 @@ async function getMentorOverviewData(userId) {
   };
 }
 
+// Submission.status enum: not_started | in_progress | submitted | graded | needs_resubmission
+const COMPLETED_SUBMISSION_STATUSES = new Set(["submitted", "graded"]);
+
+// Maps a submission's status (plus its score, when graded) to a display
+// percentage for the progress summary. Not an exact science for the
+// in-between states — it's a reasonable approximation until there's a
+// more precise notion of "how done is this" than a 5-value enum.
+function statusToPercentage(sub, maxScore) {
+  if (!sub) return 0;
+  switch (sub.status) {
+    case "graded":
+      return typeof sub.score === "number" ? Math.round((sub.score / maxScore) * 100) : 100;
+    case "submitted":
+      return 90;
+    case "needs_resubmission":
+      return 65;
+    case "in_progress":
+      return 50;
+    case "not_started":
+    default:
+      return 0;
+  }
+}
+
+function statusToLabel(status) {
+  switch (status) {
+    case "graded":
+      return "Completed";
+    case "submitted":
+    case "in_progress":
+      return "In Progress";
+    case "needs_resubmission":
+      return "Needs Improvement";
+    case "not_started":
+    default:
+      return "Not Started";
+  }
+}
+
 /**
  * Aggregates data specific to an active Student member.
  */
@@ -159,36 +198,104 @@ async function getStudentOverviewData(userId) {
   const submissions = await Submission.find({ member: member._id }).lean();
   const attendanceRecords = await Attendance.find({ member: member._id }).lean();
   const announcements = await Announcement.find().sort({ createdAt: -1 }).limit(3).lean();
-
   const userDoc = await User.findById(userId).lean();
+
+  // --- Attendance: present + late counted at half weight, matching the
+  // convention already used for the admin overview's global rate.
+  const presentCount = attendanceRecords.filter((r) => r.status === "present").length;
+  const lateCount = attendanceRecords.filter((r) => r.status === "late").length;
+  const attendancePct =
+    attendanceRecords.length > 0
+      ? Math.round(((presentCount + lateCount * 0.5) / attendanceRecords.length) * 100)
+      : 0;
+
+  // Submission has a unique (assignment, member) index, so a submission
+  // document can exist while still being "not_started" — its mere
+  // existence doesn't mean the student has actually submitted anything.
+  // Every check below goes through the real `status` field instead.
+  const submissionByAssignmentId = new Map(submissions.map((s) => [String(s.assignment), s]));
+  const assignmentMaxScoreById = new Map(assignments.map((a) => [String(a._id), a.maxScore || 100]));
+
+  const pendingAssignments = assignments.filter((a) => {
+    const sub = submissionByAssignmentId.get(String(a._id));
+    return !sub || !COMPLETED_SUBMISSION_STATUSES.has(sub.status);
+  });
+
+  // --- Progress: % of assignments actually submitted or graded.
+  // `member.progress` is never set anywhere in this codebase, so it was
+  // silently always 0 — this replaces it with a real, derivable number.
+  const progressPct =
+    assignments.length > 0
+      ? Math.round(((assignments.length - pendingAssignments.length) / assignments.length) * 100)
+      : 0;
+
+  // --- Average grade: percentage per *graded* submission (score / that
+  // assignment's own maxScore), averaged. Was hardcoded to 0 before.
+  const gradedPercentages = submissions
+    .filter((s) => s.status === "graded" && typeof s.score === "number")
+    .map((s) => {
+      const max = assignmentMaxScoreById.get(String(s.assignment)) || 100;
+      return Math.round((s.score / max) * 100);
+    });
+  const averageGrade =
+    gradedPercentages.length > 0
+      ? Math.round(gradedPercentages.reduce((sum, v) => sum + v, 0) / gradedPercentages.length)
+      : 0;
+
+  // --- Progress summary. Assignment has no `topic` field in the current
+  // schema, so this is one row per assignment (title as the label)
+  // rather than grouped by curriculum topic. If you add a `topic` field
+  // to Assignment.model.js later, group by that here instead.
+  const progressSummary = assignments
+    .slice()
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .map((a) => {
+      const sub = submissionByAssignmentId.get(String(a._id));
+      const max = a.maxScore || 100;
+      return {
+        id: a._id,
+        topic: a.title,
+        percentage: statusToPercentage(sub, max),
+        status: statusToLabel(sub?.status),
+      };
+    });
 
   return {
     student: { firstName: userDoc?.firstName || userDoc?.fullName || "Student" },
     overview: {
-      attendance: attendanceRecords.length > 0 
-        ? Math.round((attendanceRecords.filter(r => r.status === "present").length / attendanceRecords.length) * 100) 
-        : 0,
-      progress: member.progress || 0,
-      assignments: assignments.length,
-      averageGrade: 0,
+      attendance: attendancePct,
+      progress: progressPct,
+      assignments: pendingAssignments.length, // "pending", matching the card's own subtitle
+      averageGrade,
     },
-    progressSummary: [],
+    progressSummary,
     announcements,
-    upcomingDeadlines: assignments.map(a => ({
-      id: a._id,
-      title: a.title,
-      description: a.description || "No description provided",
-      date: new Date(a.deadline).toLocaleDateString(),
-      status: "In Progress",
-    })),
-    recentFeedback: submissions.filter(s => s.feedback).map(s => ({
-      id: s._id,
-      title: "Assignment Submission",
-      score: s.score || 0,
-      maxScore: 100,
-      feedback: s.feedback,
-      date: new Date(s.updatedAt || Date.now()).toLocaleDateString(),
-    })),
+    upcomingDeadlines: pendingAssignments
+      .filter((a) => a.deadline && new Date(a.deadline) > new Date())
+      .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
+      .map((a) => {
+        const sub = submissionByAssignmentId.get(String(a._id));
+        return {
+          id: a._id,
+          title: a.title,
+          description: a.description || "No description provided",
+          date: new Date(a.deadline).toLocaleDateString(),
+          status: statusToLabel(sub?.status),
+        };
+      }),
+    recentFeedback: submissions
+      .filter((s) => s.feedback)
+      .map((s) => {
+        const max = assignmentMaxScoreById.get(String(s.assignment)) || 100;
+        return {
+          id: s._id,
+          title: "Assignment Submission",
+          score: s.score || 0,
+          maxScore: max,
+          feedback: s.feedback,
+          date: new Date(s.updatedAt || Date.now()).toLocaleDateString(),
+        };
+      }),
     memberInfo: member,
     batch: member.batch,
   };
