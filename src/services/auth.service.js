@@ -2,6 +2,7 @@ const User = require("../models/User.model");
 const Member = require("../models/Member.model");
 const Batch = require("../models/Batch.model");
 const generateToken = require("../utils/generateToken");
+const { sendOTPEmail } = require("../utils/sendEmail");
 
 const createApplicant = async (data, applicationType) => {
   const { email, fullName } = data;
@@ -147,4 +148,58 @@ exports.getUserIdentity = async (userId) => {
   }
 
   return user;
+};
+
+/**
+ * @desc Generate OTP and send email for password reset
+ */
+exports.forgotPassword = async (email) => {
+  const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+  if (!user) {
+    const error = new Error("No account found with this email address.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Generate 6-digit random code
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+  user.resetPasswordOTP = otp;
+  user.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+  await user.save({ validateBeforeSave: false });
+
+  await sendOTPEmail(user.email, otp);
+
+  return { message: "Verification code sent to your email." };
+};
+
+/**
+ * @desc Verify OTP and update user password
+ */
+exports.resetPasswordWithOTP = async (email, otp, newPassword) => {
+  if (newPassword.length < 8) {
+    const error = new Error("Password must be at least 8 characters long.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await User.findOne({
+    email: email.toLowerCase().trim(),
+    resetPasswordOTP: otp.trim(),
+    resetPasswordExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    const error = new Error("Invalid or expired verification code.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  user.password = newPassword; // Will be hashed by pre('save') hook in userSchema
+  user.resetPasswordOTP = null;
+  user.resetPasswordExpires = null;
+  await user.save();
+
+  return { message: "Password reset successful! You can now log in." };
 };
