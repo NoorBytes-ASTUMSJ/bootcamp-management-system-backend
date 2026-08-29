@@ -210,17 +210,28 @@ const userSchema = new mongoose.Schema(
         "Expertise is required",
       ],
     },
+
+    // --- PASSWORD RESET OTP FIELDS ---
+
+    resetPasswordOTP: {
+      type: String,
+      default: null,
+    },
+
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );
 
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next;
+// Password Hashing Middleware
+userSchema.pre("save", async function () {
+  if (!this.isModified("password")) return;
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-
-  next;
 });
 
 userSchema.methods.comparePassword = async function (candidatePassword) {

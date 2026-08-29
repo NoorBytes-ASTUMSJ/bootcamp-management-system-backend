@@ -7,6 +7,8 @@ const { protect } = require("../middlewares/auth.middleware");
 router.post("/register/student", authController.registerStudent);
 router.post("/register/mentor", authController.registerMentor);
 router.post("/login", authController.login);
+router.post("/forgot-password", authController.forgotPassword);
+router.post("/reset-password", authController.resetPasswordWithOTP);
 
 // Protected endpoints
 router.post("/logout", protect, authController.logout);
