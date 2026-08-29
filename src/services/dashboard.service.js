@@ -215,16 +215,21 @@ async function getAdminOverviewData(adminUser) {
           );
         });
 
-        let totalPoints = 0;
-        mSubs.forEach((s) => {
-          if (s.score !== undefined && s.score !== null) {
-            totalPoints += Number(s.score);
-          }
-        });
+        const value =
+          batchAssignments.length > 0
+            ? Math.round(
+                mSubs.reduce((sum, s) => {
+                  const aId = (s.assignment?._id || s.assignment)?.toString();
+                  const maxScore = assignmentMaxScores[aId] || 100;
+                  return sum + (Number(s.score) / maxScore) * 100;
+                }, 0) / batchAssignments.length,
+              )
+            : 0;
+
         return {
           id: student.userId || student.memberId,
           name: student.name,
-          value: totalPoints,
+          value,
           count: mSubs.length,
         };
       })
